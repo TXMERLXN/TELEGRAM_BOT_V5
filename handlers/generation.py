@@ -14,7 +14,6 @@ from messages import (
     GENERATION_ERROR,
     GENERATION_CANCELLED
 )
-from utils import send_upload_animation
 
 router = Router()
 runninghub = RunningHubAPI()
@@ -37,9 +36,8 @@ async def product_handler(callback: CallbackQuery, state: FSMContext):
     await state.set_state(GenerationState.waiting_for_product_image)
     await state.update_data(workflow="product", message_id=callback.message.message_id)
     await callback.answer()
-    # Отправляем новое сообщение с анимацией
-    await send_upload_animation(
-        callback.message,
+    # Отправляем обычное сообщение вместо анимации
+    await callback.message.answer(
         "Отправьте фотографию продукта",
         reply_markup=get_back_keyboard()
     )
@@ -51,8 +49,7 @@ async def process_product_image(message: Message, state: FSMContext):
     await state.update_data(product_image=message.photo[-1].file_id)
     await state.set_state(GenerationState.waiting_for_background_image)
     # Отправляем сообщение с анимацией
-    await send_upload_animation(
-        message,
+    await message.answer(
         "Теперь отправьте фотографию с референсом фона/окружения",
         reply_markup=get_back_keyboard()
     )
