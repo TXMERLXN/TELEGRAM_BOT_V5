@@ -6,6 +6,9 @@ meta:
 
 build:
   requirementsPath: requirements.txt
+  artifacts:
+    - source: assets/
+      destination: assets/
 
 run:
   command: python bot.py
