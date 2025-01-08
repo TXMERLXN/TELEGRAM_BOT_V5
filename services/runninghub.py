@@ -200,16 +200,15 @@ class RunningHubAPI:
             ]
         }
 
-        logger.info(f"Creating task at {url}")
-        logger.debug(f"Task payload: {json.dumps(payload)}")
-        
+        logger.info("Creating task with uploaded files")
         status, response_text = await self._make_request('post', url, json=payload)
         if status == 200 and response_text:
             try:
                 data = json.loads(response_text)
                 if data.get("code") == 0:
                     task_id = data["data"]["taskId"]
-                    # Ждем завершения задачи и получаем результат
+                    logger.info(f"Task created successfully: {task_id}")
+                    # Ждем завершения задачи
                     return await self._wait_for_task_completion(task_id)
                 else:
                     error_msg = data.get("msg")
@@ -218,5 +217,4 @@ class RunningHubAPI:
                 logger.error(f"Failed to parse task creation JSON response: {e}")
         else:
             logger.error(f"Task creation API error: {status} - {response_text}")
-        
         return None
