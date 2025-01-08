@@ -35,3 +35,11 @@ def get_result_keyboard():
     builder.adjust(1)
     
     return builder.as_markup()
+
+def get_cancel_keyboard():
+    """
+    Создает клавиатуру с кнопкой отмены генерации
+    """
+    builder = InlineKeyboardBuilder()
+    builder.button(text="❌ Отменить генерацию", callback_data="cancel_generation")
+    return builder.as_markup()
