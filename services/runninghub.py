@@ -9,25 +9,22 @@ logger = logging.getLogger(__name__)
 
 class RunningHubAPI:
     def __init__(self):
-    self.api_key = config.runninghub.api_key
-    self.headers = {
-        "Content-Type": "application/json"
-    }
-    self.workflow_id = "1871659613585305601"
-    self.api_url = "https://www.runninghub.ai"
-    # Таймауты для HTTP-запросов
-    self.timeout = aiohttp.ClientTimeout(
-        total=600,  # Общий таймаут 10 минут
-        connect=60,  # Таймаут на подключение 1 минута
-        sock_read=300  # Таймаут на чтение 5 минут
-    )
-    if not self.api_key:
-        logger.error("RunningHubAPI initialization failed: API key is not set")
-        raise ValueError("RUNNINGHUB_API_KEY environment variable is not set")
-    logger.info(f"Initialized RunningHubAPI with API key: {self.api_key[:8]}...")
-        logger.error("RunningHubAPI initialization failed: API key is not set")
-        raise ValueError("RUNNINGHUB_API_KEY environment variable is not set")
-    logger.info(f"Initialized RunningHubAPI with API key: {self.api_key[:8]}...")
+        self.api_key = config.runninghub.api_key
+        self.headers = {
+            "Content-Type": "application/json"
+        }
+        self.workflow_id = "1871659613585305601"
+        self.api_url = "https://www.runninghub.ai"
+        # Таймауты для HTTP-запросов
+        self.timeout = aiohttp.ClientTimeout(
+            total=600,  # Общий таймаут 10 минут
+            connect=60,  # Таймаут на подключение 1 минута
+            sock_read=300  # Таймаут на чтение 5 минут
+        )
+        if not self.api_key:
+            logger.error("RunningHubAPI initialization failed: API key is not set")
+            raise ValueError("RUNNINGHUB_API_KEY environment variable is not set")
+        logger.info(f"Initialized RunningHubAPI with API key: {self.api_key[:8]}...")
 
     async def _make_request(self, method: str, url: str, return_bytes: bool = False, **kwargs) -> tuple:
         """
