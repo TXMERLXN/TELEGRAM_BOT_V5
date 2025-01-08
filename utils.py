@@ -7,11 +7,23 @@ logger = logging.getLogger(__name__)
 
 def get_animation_file() -> Optional[FSInputFile]:
     """Загружает файл GIF анимации"""
-    animation_path = os.path.join('assets', 'upload_animation.gif')
+    assets_dir = 'assets'
+    animation_path = os.path.join(assets_dir, 'upload_animation.gif')
+    
+    # Логируем содержимое директории assets
+    if os.path.exists(assets_dir):
+        files = os.listdir(assets_dir)
+        logger.info(f"Файлы в директории {assets_dir}: {files}")
+    else:
+        logger.error(f"Директория {assets_dir} не существует")
+    
     logger.info(f"Путь к файлу анимации: {animation_path}")
     logger.info(f"Файл существует: {os.path.exists(animation_path)}")
+    
     if os.path.exists(animation_path):
+        logger.info("Возвращаем GIF файл")
         return FSInputFile(animation_path)
+    logger.error("GIF файл не найден")
     return None
 
 async def send_upload_animation(
