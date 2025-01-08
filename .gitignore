@@ -42,3 +42,6 @@ logs/
 # Local data
 data/
 uploads/
+
+# Animation files
+assets/upload_animation.json
