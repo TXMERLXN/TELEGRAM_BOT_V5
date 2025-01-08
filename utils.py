@@ -1,10 +1,15 @@
 import os
+import logging
 from typing import Optional, Union
 from aiogram.types import Message, InlineKeyboardMarkup, ReplyKeyboardMarkup, FSInputFile
+
+logger = logging.getLogger(__name__)
 
 def get_animation_file() -> Optional[FSInputFile]:
     """Загружает файл GIF анимации"""
     animation_path = os.path.join('assets', 'upload_animation.gif')
+    logger.info(f"Путь к файлу анимации: {animation_path}")
+    logger.info(f"Файл существует: {os.path.exists(animation_path)}")
     if os.path.exists(animation_path):
         return FSInputFile(animation_path)
     return None
