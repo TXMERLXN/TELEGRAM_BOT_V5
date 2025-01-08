@@ -35,6 +35,10 @@ logger = logging.getLogger(__name__)
 # Загружаем конфиг
 config = load_config()
 logger.debug(f"Loaded config: {config}")
+logger.info("====== Starting bot ======")
+logger.info(f"Bot token length: {len(config.tg_bot.token)}")
+logger.info(f"RunningHub API key length: {len(config.runninghub.api_key)}")
+logger.info("==========================")
 
 # Инициализируем бота и диспетчер
 bot = Bot(
