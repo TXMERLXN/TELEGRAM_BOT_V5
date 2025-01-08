@@ -1,0 +1,18 @@
+meta:
+  environment: python
+  toolchain:
+    name: pip
+    version: 3.9
+
+build:
+  requirementsPath: requirements.txt
+
+run:
+  command: python bot.py
+  persistenceMount: /data
+
+env:
+  - name: BOT_TOKEN
+    value: '{{ BOT_TOKEN }}'
+  - name: RUNNINGHUB_API_KEY
+    value: '{{ RUNNINGHUB_API_KEY }}'
