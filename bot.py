@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import sys
 from os import getenv
 
 from aiogram import Bot, Dispatcher
@@ -11,10 +12,24 @@ from config import load_config
 from handlers import base, generation
 
 # Настраиваем логирование
-logging.basicConfig(
-    level=logging.DEBUG,  # Изменили уровень на DEBUG
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.DEBUG)
+
+# Создаем форматтер для логов
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+# Добавляем обработчик для вывода в stdout
+console_handler = logging.StreamHandler(sys.stdout)
+console_handler.setLevel(logging.DEBUG)
+console_handler.setFormatter(formatter)
+root_logger.addHandler(console_handler)
+
+# Добавляем обработчик для вывода в файл
+file_handler = logging.FileHandler('bot.log')
+file_handler.setLevel(logging.DEBUG)
+file_handler.setFormatter(formatter)
+root_logger.addHandler(file_handler)
+
 logger = logging.getLogger(__name__)
 
 # Загружаем конфиг

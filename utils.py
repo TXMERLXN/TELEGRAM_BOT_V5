@@ -2,12 +2,12 @@ import os
 import logging
 import time
 from typing import Optional, Union
-from aiogram.types import Message, InlineKeyboardMarkup, ReplyKeyboardMarkup, FSInputFile
+from aiogram.types import Message, InlineKeyboardMarkup, ReplyKeyboardMarkup, FSInputFile, BufferedInputFile
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)  # Устанавливаем уровень логирования DEBUG
 
-def get_animation_file() -> Optional[FSInputFile]:
+def get_animation_file() -> Optional[Union[FSInputFile, BufferedInputFile]]:
     """Загружает файл GIF анимации"""
     assets_dir = 'assets'
     animation_path = os.path.join(assets_dir, 'upload_animation.gif')
@@ -47,10 +47,24 @@ def get_animation_file() -> Optional[FSInputFile]:
     logger.debug(f"Файл существует: {os.path.exists(animation_path)}")
     
     if os.path.exists(animation_path):
-        # Добавляем timestamp к имени файла для избежания кэширования
-        return FSInputFile(animation_path, filename=f"upload_animation_{int(time.time())}.gif")
+        try:
+            # Читаем файл в память
+            with open(animation_path, 'rb') as file:
+                content = file.read()
+                logger.debug(f"Прочитан GIF файл размером {len(content)} байт")
+                # Создаем BufferedInputFile с уникальным именем
+                return BufferedInputFile(content, filename=f"upload_{int(time.time())}.gif")
+        except Exception as e:
+            logger.error(f"Ошибка при чтении GIF файла: {e}")
+    else:
+        logger.error(f"GIF файл не найден по пути: {animation_path}")
+        # Проверяем содержимое директории
+        if os.path.exists(assets_dir):
+            files = os.listdir(assets_dir)
+            logger.debug(f"Файлы в директории {assets_dir}: {files}")
+        else:
+            logger.error(f"Директория {assets_dir} не существует")
     
-    logger.error("GIF файл не найден")
     return None
 
 async def send_upload_animation(
@@ -62,7 +76,7 @@ async def send_upload_animation(
     animation = get_animation_file()
     if animation:
         try:
-            logger.debug("Пытаемся отправить GIF анимацию")
+            logger.debug("Отправляем GIF анимацию")
             return await message.answer_animation(
                 animation=animation,
                 caption=text,
@@ -71,4 +85,6 @@ async def send_upload_animation(
         except Exception as e:
             logger.error(f"Ошибка отправки анимации: {e}")
             return await message.answer(text, reply_markup=reply_markup)
+    
+    logger.warning("Анимация не найдена, отправляем сообщение без анимации")
     return await message.answer(text, reply_markup=reply_markup)
