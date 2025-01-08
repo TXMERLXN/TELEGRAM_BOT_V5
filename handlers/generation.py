@@ -40,7 +40,8 @@ async def product_handler(callback: CallbackQuery, state: FSMContext):
     # Отправляем новое сообщение с анимацией
     await send_upload_animation(
         callback.message,
-        "Отправьте фотографию продукта"
+        "Отправьте фотографию продукта",
+        reply_markup=get_back_keyboard()
     )
 
 @router.message(GenerationState.waiting_for_product_image, F.photo)
@@ -52,7 +53,8 @@ async def process_product_image(message: Message, state: FSMContext):
     # Отправляем сообщение с анимацией
     await send_upload_animation(
         message,
-        "Теперь отправьте фотографию с референсом фона/окружения"
+        "Теперь отправьте фотографию с референсом фона/окружения",
+        reply_markup=get_back_keyboard()
     )
 
 @router.message(GenerationState.waiting_for_background_image, F.photo)
