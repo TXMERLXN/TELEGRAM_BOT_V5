@@ -4,7 +4,7 @@ from aiogram.types import Message, InlineKeyboardMarkup, ReplyKeyboardMarkup, FS
 
 def get_animation_file() -> Optional[FSInputFile]:
     """Загружает файл GIF анимации"""
-    animation_path = os.path.join('assets', 'wired-flat-54-photo-morph-sea.gif')
+    animation_path = os.path.join('assets', 'upload_animation.gif')
     if os.path.exists(animation_path):
         return FSInputFile(animation_path)
     return None
