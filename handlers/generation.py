@@ -131,6 +131,17 @@ async def generate_photo(
         )
         return None
 
+@router.callback_query(F.data == "back_to_main", GenerationState.waiting_for_product_image)
+@router.callback_query(F.data == "back_to_main", GenerationState.waiting_for_background_image)
+async def back_to_main_during_upload(callback: CallbackQuery, state: FSMContext):
+    """Обработчик возврата в главное меню во время загрузки фотографий"""
+    await state.clear()
+    await callback.answer()
+    await callback.message.edit_text(
+        "Генерация отменена. Возвращаемся в главное меню...",
+        reply_markup=get_main_menu_keyboard()
+    )
+
 @router.callback_query(F.data == "cancel_generation")
 async def cancel_generation(callback: CallbackQuery, state: FSMContext):
     """Обработчик отмены генерации"""
