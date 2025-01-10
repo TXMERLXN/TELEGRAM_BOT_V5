@@ -67,7 +67,7 @@ async def process_background_image(message: Message, state: FSMContext):
         reply_markup=get_cancel_keyboard()
     )
     
-    # Создаем и сохраняем задачу генерации
+    # Запускаем генерацию
     task = asyncio.create_task(
         generate_photo(message, state, product_image, message.photo[-1].file_id, status_message)
     )
@@ -100,26 +100,54 @@ async def generate_photo(
         # Устанавливаем состояние генерации
         await state.set_state(GenerationState.generating)
         
-        # Генерируем фото
-        result = await runninghub.generate_product_photo(product_image, background_image)
-        if result:
-            logger.info("Фото успешно сгенерировано")
-            # Отправляем результат с клавиатурой
-            await message.answer_photo(
-                result,
-                caption=GENERATION_COMPLETE(),
-                reply_markup=get_result_keyboard()
-            )
-            # Удаляем сообщение о генерации
-            await status_message.delete()
-            return result
-        else:
-            logger.error("Ошибка генерации: результат пустой")
+        # Запускаем генерацию и получаем ID задачи
+        task_id = await runninghub.generate_product_photo(message.from_user.id, product_image, background_image)
+        if not task_id:
+            logger.error("Не удалось создать задачу генерации")
             await status_message.edit_text(
                 GENERATION_ERROR(),
                 reply_markup=get_main_menu_keyboard()
             )
             return None
+
+        # Сохраняем task_id в состоянии
+        await state.update_data(task_id=task_id)
+        
+        # Ожидаем завершения генерации
+        while True:
+            status, result_url = await runninghub.get_generation_status(task_id)
+            
+            if status == "completed" and result_url:
+                logger.info("Фото успешно сгенерировано")
+                # Отправляем результат с клавиатурой
+                await message.answer_photo(
+                    result_url,
+                    caption=GENERATION_COMPLETE(),
+                    reply_markup=get_result_keyboard()
+                )
+                # Удаляем сообщение о генерации
+                await status_message.delete()
+                return result_url
+            
+            elif status == "failed":
+                logger.error("Ошибка генерации")
+                await status_message.edit_text(
+                    GENERATION_ERROR(),
+                    reply_markup=get_main_menu_keyboard()
+                )
+                return None
+            
+            elif status == "not_found":
+                logger.error("Задача не найдена")
+                await status_message.edit_text(
+                    GENERATION_ERROR(),
+                    reply_markup=get_main_menu_keyboard()
+                )
+                return None
+            
+            # Ждем 2 секунды перед следующей проверкой
+            await asyncio.sleep(2)
+            
     except Exception as e:
         logger.error(f"Ошибка генерации: {str(e)}")
         await status_message.edit_text(

@@ -3,6 +3,7 @@ import json
 import logging
 import asyncio
 from config import load_config
+from .task_queue import task_queue
 
 config = load_config()
 logger = logging.getLogger(__name__)
@@ -138,13 +139,25 @@ class RunningHubAPI:
                 try:
                     data = json.loads(response_text)
                     if data.get("code") == 0 and data["data"]:
-                        return data["data"][0]["fileUrl"]
+                        # Успешное завершение
+                        result = data["data"][0]
+                        if result.get("fileUrl"):
+                            return result["fileUrl"]
+                        elif result.get("text"):
+                            return result["text"]
+                        else:
+                            logger.error("Task completed but no result found")
+                            return None
                     elif data.get("code") == 804:  # APIKEY_TASK_IS_RUNNING
                         logger.info("Task is still running, waiting...")
                         await asyncio.sleep(delay)
                         continue
+                    elif data.get("code") == 805:  # APIKEY_TASK_QUEUE
+                        logger.info("Task is in queue, waiting...")
+                        await asyncio.sleep(delay)
+                        continue
                     else:
-                        error_msg = data.get("msg")
+                        error_msg = data.get("msg", "Unknown error")
                         logger.error(f"Task result API error: {error_msg}")
                         return None
                 except json.JSONDecodeError as e:
@@ -161,7 +174,7 @@ class RunningHubAPI:
         logger.error(f"Task {task_id} did not complete within {max_attempts * delay} seconds")
         return None
 
-    async def generate_product_photo(self, product_image: str, background_image: str) -> str:
+    async def generate_product_photo(self, user_id: int, product_image: str, background_image: str) -> str:
         """
         Генерирует фотографию продукта с фоном
         """
@@ -186,16 +199,19 @@ class RunningHubAPI:
         payload = {
             "workflowId": self.workflow_id,
             "apiKey": self.api_key,
+            "runningMode": "parallel",  # Включаем параллельный режим
             "nodeInfoList": [
                 {
                     "nodeId": "2",  # ID ноды для загрузки изображения продукта
                     "fieldName": "image",
-                    "fieldValue": product_filename
+                    "fieldValue": product_filename,
+                    "runningMode": "parallel"  # Включаем параллельный режим для ноды
                 },
                 {
                     "nodeId": "32",  # ID ноды для загрузки фонового изображения
                     "fieldName": "image",
-                    "fieldValue": background_filename
+                    "fieldValue": background_filename,
+                    "runningMode": "parallel"  # Включаем параллельный режим для ноды
                 }
             ]
         }
@@ -208,13 +224,58 @@ class RunningHubAPI:
                 if data.get("code") == 0:
                     task_id = data["data"]["taskId"]
                     logger.info(f"Task created successfully: {task_id}")
-                    # Ждем завершения задачи
-                    return await self._wait_for_task_completion(task_id)
+                    
+                    # Добавляем задачу в очередь
+                    await task_queue.add_task(user_id, task_id)
+                    
+                    # Запускаем обработку задачи
+                    asyncio.create_task(
+                        task_queue.process_task(
+                            task_id,
+                            lambda tid: self._wait_for_task_completion(tid)
+                        )
+                    )
+                    
+                    return task_id
                 else:
-                    error_msg = data.get("msg")
+                    error_msg = data.get("msg", "Unknown error")
                     logger.error(f"Task creation API error: {error_msg}")
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse task creation JSON response: {e}")
         else:
             logger.error(f"Task creation API error: {status} - {response_text}")
         return None
+
+    async def get_generation_status(self, task_id: str) -> tuple[str, Optional[str]]:
+        """
+        Получает статус генерации и URL результата
+        Возвращает: (status, result_url)
+        """
+        url = f"{self.api_url}/task/openapi/outputs"
+        payload = {
+            "taskId": task_id,
+            "apiKey": self.api_key
+        }
+
+        status, response_text = await self._make_request('post', url, json=payload)
+        if status == 200 and response_text:
+            try:
+                data = json.loads(response_text)
+                if data.get("code") == 0 and data["data"]:
+                    # Задача завершена успешно
+                    result = data["data"][0]
+                    if result.get("fileUrl"):
+                        return "completed", result["fileUrl"]
+                    elif result.get("text"):
+                        return "completed", result["text"]
+                    else:
+                        return "failed", None
+                elif data.get("code") == 804:  # APIKEY_TASK_IS_RUNNING
+                    return "processing", None
+                elif data.get("code") == 805:  # APIKEY_TASK_QUEUE
+                    return "queued", None
+                else:
+                    return "failed", None
+            except json.JSONDecodeError:
+                return "failed", None
+        return "failed", None

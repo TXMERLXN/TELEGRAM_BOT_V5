@@ -12,6 +12,10 @@ class TgBot:
 @dataclass
 class RunningHub:
     api_key: str
+    max_concurrent_tasks: int = 10  # Увеличиваем количество параллельных задач
+    task_timeout: int = 600  # Таймаут задачи в секундах (10 минут)
+    retry_delay: int = 5  # Задержка между попытками в секундах
+    max_retries: int = 3  # Максимальное количество попыток для HTTP запросов
 
 @dataclass
 class Config:
