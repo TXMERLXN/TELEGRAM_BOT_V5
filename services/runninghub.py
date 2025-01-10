@@ -57,33 +57,41 @@ class RunningHubAPI:
         
         return None, None
 
-    async def upload_image(self, image_data: bytes, filename: str) -> str:
-        """
-        Загружает изображение на сервер RunningHub
-        """
+    async def upload_image(self, image_data: bytes, filename: str) -> Optional[str]:
+        """Загружает изображение на RunningHub"""
         url = f"{self.api_url}/task/openapi/upload"
         
-        # Создаем форму для загрузки файла
-        form = aiohttp.FormData()
-        form.add_field('apiKey', self.api_key)
-        form.add_field('file', image_data, filename=filename, content_type='image/jpeg')
-        form.add_field('fileType', 'image')
-
-        logger.info(f"Uploading image to {url}")
-        
-        status, response_text = await self._make_request('post', url, data=form)
-        if status == 200 and response_text:
-            try:
-                data = json.loads(response_text)
-                if data.get("code") == 0:
-                    return data["data"]["fileName"]
-                else:
-                    error_msg = data.get("msg")
-                    logger.error(f"Upload API error: {error_msg}")
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse upload JSON response: {e}")
-        else:
-            logger.error(f"Upload API error: {status} - {response_text}")
+        try:
+            # Создаем multipart-данные для загрузки файла
+            form = aiohttp.FormData()
+            form.add_field('apiKey', self.api_key)
+            form.add_field(
+                'file',
+                image_data,
+                filename=filename,
+                content_type='image/jpeg'
+            )
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, data=form) as response:
+                    response_text = await response.text()
+                    logger.debug(f"Upload response: {response_text}")
+                    
+                    if response.status == 200:
+                        try:
+                            data = json.loads(response_text)
+                            if data.get("code") == 0:
+                                return data["data"]["fileName"]
+                            else:
+                                logger.error(f"Upload API error: {data.get('msg')}")
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Failed to parse upload response: {e}")
+                    else:
+                        logger.error(f"Upload failed with status {response.status}")
+                        
+        except Exception as e:
+            logger.error(f"Error uploading image: {str(e)}")
+            
         return None
 
     async def _get_telegram_file_path(self, file_id: str) -> str:
@@ -175,24 +183,16 @@ class RunningHubAPI:
         logger.error(f"Task {task_id} did not complete within {max_attempts * delay} seconds")
         return None
 
-    async def generate_product_photo(self, user_id: int, product_image: str, background_image: str) -> str:
+    async def generate_product_photo(self, user_id: int, product_image: bytes, background_image: bytes) -> Optional[str]:
         """
         Генерирует фотографию продукта с фоном
         """
-        # Скачиваем файлы из Telegram
-        product_data = await self._download_telegram_file(product_image)
-        background_data = await self._download_telegram_file(background_image)
-        
-        if not product_data or not background_data:
-            logger.error("Failed to download images from Telegram")
-            return None
-
         # Загружаем файлы на RunningHub
-        product_filename = await self.upload_image(product_data, "product.jpg")
-        background_filename = await self.upload_image(background_data, "background.jpg")
-
+        product_filename = await self.upload_image(product_image, "product.jpg")
+        background_filename = await self.upload_image(background_image, "background.jpg")
+        
         if not product_filename or not background_filename:
-            logger.error("Failed to upload images to RunningHub")
+            logger.error("Failed to upload images")
             return None
 
         # Создаем задачу с загруженными файлами
