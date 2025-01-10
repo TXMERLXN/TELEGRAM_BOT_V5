@@ -23,6 +23,8 @@ class RunningHubAPI:
             connect=60,  # Таймаут на подключение 1 минута
             sock_read=300  # Таймаут на чтение 5 минут
         )
+        self.max_retries = 5
+        self.retry_delay = 10
         if not self.api_key:
             logger.error("RunningHubAPI initialization failed: API key is not set")
             raise ValueError("RUNNINGHUB_API_KEY environment variable is not set")
@@ -32,10 +34,7 @@ class RunningHubAPI:
         """
         Выполняет HTTP-запрос с повторными попытками
         """
-        max_retries = 3
-        retry_delay = 5
-        
-        for attempt in range(max_retries):
+        for attempt in range(self.max_retries):
             try:
                 async with aiohttp.ClientSession(timeout=self.timeout) as session:
                     async with getattr(session, method)(url, **kwargs) as response:
@@ -45,14 +44,14 @@ class RunningHubAPI:
                             response_data = await response.text()
                         return response.status, response_data
             except asyncio.TimeoutError:
-                logger.warning(f"Timeout on attempt {attempt + 1}/{max_retries}")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(retry_delay)
+                logger.warning(f"Timeout on attempt {attempt + 1}/{self.max_retries}")
+                if attempt < self.max_retries - 1:
+                    await asyncio.sleep(self.retry_delay)
                 continue
             except Exception as e:
-                logger.error(f"Request error on attempt {attempt + 1}/{max_retries}: {str(e)}")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(retry_delay)
+                logger.error(f"Request error on attempt {attempt + 1}/{self.max_retries}: {str(e)}")
+                if attempt < self.max_retries - 1:
+                    await asyncio.sleep(self.retry_delay)
                 continue
         
         return None, None
@@ -183,6 +182,55 @@ class RunningHubAPI:
         logger.error(f"Task {task_id} did not complete within {max_attempts * delay} seconds")
         return None
 
+    async def create_task(self, product_filename: str, background_filename: str, workflow_id: str = "1") -> Optional[str]:
+        """Создает задачу в RunningHub"""
+        url = f"{self.api_url}/task/openapi/create"
+        
+        for attempt in range(1, self.max_retries + 1):
+            logger.info(f"Creating task with uploaded files (attempt {attempt}/{self.max_retries})")
+            
+            data = {
+                "apiKey": self.api_key,
+                "workflowId": workflow_id,
+                "variables": {
+                    "product_image": product_filename,
+                    "background_image": background_filename
+                }
+            }
+            
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(url, json=data) as response:
+                        response_text = await response.text()
+                        if response.status == 200:
+                            try:
+                                data = json.loads(response_text)
+                                if data.get("code") == 0:
+                                    return data["data"]["taskId"]
+                                else:
+                                    error_msg = data.get("msg", "Unknown error")
+                                    if error_msg == "TASK_QUEUE_MAXED":
+                                        # Если очередь заполнена, ждем дольше перед следующей попыткой
+                                        logger.warning("Task queue is maxed out, waiting before retry")
+                                        await asyncio.sleep(self.retry_delay * 2)
+                                    elif error_msg == "TASK_CREATE_TOO_FAST":
+                                        logger.warning("Task creation too fast, waiting before retry")
+                                        await asyncio.sleep(self.retry_delay)
+                                    else:
+                                        logger.error(f"Task creation API error: {error_msg}")
+                            except json.JSONDecodeError as e:
+                                logger.error(f"Failed to parse task creation response: {e}")
+                        else:
+                            logger.error(f"Task creation failed with status {response.status}")
+                            
+            except Exception as e:
+                logger.error(f"Error creating task: {str(e)}")
+            
+            if attempt < self.max_retries:
+                await asyncio.sleep(self.retry_delay)
+                
+        return None
+
     async def generate_product_photo(self, user_id: int, product_image: bytes, background_image: bytes) -> Optional[str]:
         """
         Генерирует фотографию продукта с фоном
@@ -196,71 +244,23 @@ class RunningHubAPI:
             return None
 
         # Создаем задачу с загруженными файлами
-        url = f"{self.api_url}/task/openapi/create"
-        payload = {
-            "workflowId": self.workflow_id,
-            "apiKey": self.api_key,
-            "nodeInfoList": [
-                {
-                    "nodeId": "2",  # ID ноды для загрузки изображения продукта
-                    "fieldName": "image",
-                    "fieldValue": product_filename
-                },
-                {
-                    "nodeId": "32",  # ID ноды для загрузки фонового изображения
-                    "fieldName": "image",
-                    "fieldValue": background_filename
-                }
-            ]
-        }
-
-        max_attempts = 5  # Максимальное количество попыток создания задачи
-        delay = 10  # Задержка между попытками в секундах
-
-        for attempt in range(max_attempts):
-            logger.info(f"Creating task with uploaded files (attempt {attempt + 1}/{max_attempts})")
-            status, response_text = await self._make_request('post', url, json=payload)
-            
-            if status == 200 and response_text:
-                try:
-                    data = json.loads(response_text)
-                    if data.get("code") == 0:
-                        task_id = data["data"]["taskId"]
-                        logger.info(f"Task created successfully: {task_id}")
-                        
-                        # Добавляем задачу в очередь
-                        await task_queue.add_task(user_id, task_id)
-                        
-                        # Запускаем обработку задачи
-                        asyncio.create_task(
-                            task_queue.process_task(
-                                task_id,
-                                lambda tid: self._wait_for_task_completion(tid)
-                            )
-                        )
-                        
-                        return task_id
-                    elif data.get("code") == 805 or "TASK_QUEUE_MAXED" in str(data.get("msg", "")):
-                        # Если очередь заполнена, ждем и пробуем снова
-                        logger.info("Task queue is full, waiting before retry...")
-                        await asyncio.sleep(delay)
-                        continue
-                    else:
-                        error_msg = data.get("msg", "Unknown error")
-                        logger.error(f"Task creation API error: {error_msg}")
-                        return None
-                except json.JSONDecodeError as e:
-                    logger.error(f"Failed to parse task creation JSON response: {e}")
-                    return None
-            else:
-                logger.error(f"Task creation API error: {status} - {response_text}")
-                if attempt < max_attempts - 1:
-                    await asyncio.sleep(delay)
-                    continue
-                return None
+        task_id = await self.create_task(product_filename, background_filename, self.workflow_id)
+        if not task_id:
+            logger.error("Failed to create task")
+            return None
         
-        logger.error("Failed to create task after all attempts")
-        return None
+        # Добавляем задачу в очередь
+        await task_queue.add_task(user_id, task_id)
+        
+        # Запускаем обработку задачи
+        asyncio.create_task(
+            task_queue.process_task(
+                task_id,
+                lambda tid: self._wait_for_task_completion(tid)
+            )
+        )
+        
+        return task_id
 
     async def get_generation_status(self, task_id: str) -> tuple[str, Optional[str]]:
         """

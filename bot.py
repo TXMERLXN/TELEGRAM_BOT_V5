@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import signal
 import sys
 from os import getenv
 
@@ -10,6 +11,7 @@ from aiogram.client.default import DefaultBotProperties
 
 from config import load_config
 from handlers import base, generation
+from services.task_queue import task_queue
 
 # Настраиваем логирование
 root_logger = logging.getLogger()
@@ -32,36 +34,54 @@ root_logger.addHandler(file_handler)
 
 logger = logging.getLogger(__name__)
 
-# Загружаем конфиг
-config = load_config()
-logger.debug(f"Loaded config: {config}")
-logger.info("====== Starting bot ======")
-logger.info(f"Bot token length: {len(config.tg_bot.token)}")
-logger.info(f"RunningHub API key length: {len(config.runninghub.api_key)}")
-logger.info("==========================")
-
-# Инициализируем бота и диспетчер
-bot = Bot(
-    token=config.tg_bot.token,
-    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-)
-dp = Dispatcher(storage=MemoryStorage())
-
-# Регистрируем роутеры
-dp.include_router(base.router)
-dp.include_router(generation.router)
-
 async def main():
-    # Запускаем бота
+    # Загружаем конфиг
+    config = load_config()
+    logger.debug(f"Loaded config: {config}")
+    logger.info("====== Starting bot ======")
+    logger.info(f"Bot token length: {len(config.tg_bot.token)}")
+    logger.info(f"RunningHub API key length: {len(config.runninghub.api_key)}")
+    logger.info("==========================")
+
+    # Инициализируем бота и диспетчер
+    bot = Bot(
+        token=config.tg_bot.token,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+    )
+    dp = Dispatcher(storage=MemoryStorage())
+
+    # Регистрируем роутеры
+    dp.include_router(base.router)
+    dp.include_router(generation.router)
+
+    # Обработчик SIGTERM
+    async def handle_sigterm(signum, frame):
+        logger.info("Received SIGTERM signal")
+        # Отменяем все активные задачи
+        await task_queue.cancel_all_tasks()
+        # Закрываем соединения
+        await bot.session.close()
+        # Останавливаем поллинг
+        await dp.stop_polling()
+        logger.info("Shutting down bot")
+
+    # Регистрируем обработчик SIGTERM
+    loop = asyncio.get_event_loop()
+    loop.add_signal_handler(signal.SIGTERM, 
+                          lambda: asyncio.create_task(handle_sigterm(signal.SIGTERM, None)))
+
+    logger.info("Starting bot")
     try:
-        logger.info("Starting bot")
+        # Запускаем бота
         await dp.start_polling(bot, skip_updates=True)
     except Exception as e:
         logger.error(f"Error starting bot: {e}")
         raise
     finally:
-        logger.info("Shutting down bot")
+        # Очистка при выходе
+        await task_queue.cancel_all_tasks()
         await bot.session.close()
+        logger.info("Shutting down bot")
 
 if __name__ == "__main__":
     try:

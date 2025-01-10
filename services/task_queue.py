@@ -25,6 +25,7 @@ class TaskQueue:
         self.queue: asyncio.Queue = asyncio.Queue()
         self.semaphore = asyncio.Semaphore(config.runninghub.max_concurrent_tasks)
         self.processing_tasks: Dict[str, asyncio.Task] = {}
+        self.lock = asyncio.Lock()
         
     async def add_task(self, user_id: int, task_id: str) -> None:
         """Добавляет задачу в очередь"""
@@ -108,6 +109,17 @@ class TaskQueue:
             age = (now - task_info.start_time).total_seconds()
             if age > max_age_seconds:
                 self.remove_task(task_id)
+
+    async def cancel_all_tasks(self):
+        """Отменяет все активные задачи"""
+        logger.info("Cancelling all active tasks")
+        async with self.lock:
+            for task_id in list(self.active_tasks.keys()):
+                task = self.active_tasks[task_id]
+                if task.status == "processing":
+                    logger.info(f"Cancelling task {task_id}")
+                    self.remove_task(task_id)
+            self.active_tasks.clear()
 
 # Глобальный экземпляр очереди задач
 task_queue = TaskQueue()
