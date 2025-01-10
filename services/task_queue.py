@@ -4,6 +4,7 @@ from typing import Dict, Optional
 from dataclasses import dataclass
 from datetime import datetime
 from config import load_config
+from typing import Optional
 
 config = load_config()
 logger = logging.getLogger(__name__)

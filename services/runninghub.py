@@ -2,6 +2,7 @@ import aiohttp
 import json
 import logging
 import asyncio
+from typing import Optional
 from config import load_config
 from .task_queue import task_queue
 
