@@ -200,51 +200,66 @@ class RunningHubAPI:
         payload = {
             "workflowId": self.workflow_id,
             "apiKey": self.api_key,
-            "runningMode": "parallel",  # Включаем параллельный режим
             "nodeInfoList": [
                 {
                     "nodeId": "2",  # ID ноды для загрузки изображения продукта
                     "fieldName": "image",
-                    "fieldValue": product_filename,
-                    "runningMode": "parallel"  # Включаем параллельный режим для ноды
+                    "fieldValue": product_filename
                 },
                 {
                     "nodeId": "32",  # ID ноды для загрузки фонового изображения
                     "fieldName": "image",
-                    "fieldValue": background_filename,
-                    "runningMode": "parallel"  # Включаем параллельный режим для ноды
+                    "fieldValue": background_filename
                 }
             ]
         }
 
-        logger.info("Creating task with uploaded files")
-        status, response_text = await self._make_request('post', url, json=payload)
-        if status == 200 and response_text:
-            try:
-                data = json.loads(response_text)
-                if data.get("code") == 0:
-                    task_id = data["data"]["taskId"]
-                    logger.info(f"Task created successfully: {task_id}")
-                    
-                    # Добавляем задачу в очередь
-                    await task_queue.add_task(user_id, task_id)
-                    
-                    # Запускаем обработку задачи
-                    asyncio.create_task(
-                        task_queue.process_task(
-                            task_id,
-                            lambda tid: self._wait_for_task_completion(tid)
+        max_attempts = 5  # Максимальное количество попыток создания задачи
+        delay = 10  # Задержка между попытками в секундах
+
+        for attempt in range(max_attempts):
+            logger.info(f"Creating task with uploaded files (attempt {attempt + 1}/{max_attempts})")
+            status, response_text = await self._make_request('post', url, json=payload)
+            
+            if status == 200 and response_text:
+                try:
+                    data = json.loads(response_text)
+                    if data.get("code") == 0:
+                        task_id = data["data"]["taskId"]
+                        logger.info(f"Task created successfully: {task_id}")
+                        
+                        # Добавляем задачу в очередь
+                        await task_queue.add_task(user_id, task_id)
+                        
+                        # Запускаем обработку задачи
+                        asyncio.create_task(
+                            task_queue.process_task(
+                                task_id,
+                                lambda tid: self._wait_for_task_completion(tid)
+                            )
                         )
-                    )
-                    
-                    return task_id
-                else:
-                    error_msg = data.get("msg", "Unknown error")
-                    logger.error(f"Task creation API error: {error_msg}")
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse task creation JSON response: {e}")
-        else:
-            logger.error(f"Task creation API error: {status} - {response_text}")
+                        
+                        return task_id
+                    elif data.get("code") == 805 or "TASK_QUEUE_MAXED" in str(data.get("msg", "")):
+                        # Если очередь заполнена, ждем и пробуем снова
+                        logger.info("Task queue is full, waiting before retry...")
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        error_msg = data.get("msg", "Unknown error")
+                        logger.error(f"Task creation API error: {error_msg}")
+                        return None
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse task creation JSON response: {e}")
+                    return None
+            else:
+                logger.error(f"Task creation API error: {status} - {response_text}")
+                if attempt < max_attempts - 1:
+                    await asyncio.sleep(delay)
+                    continue
+                return None
+        
+        logger.error("Failed to create task after all attempts")
         return None
 
     async def get_generation_status(self, task_id: str) -> tuple[str, Optional[str]]:
