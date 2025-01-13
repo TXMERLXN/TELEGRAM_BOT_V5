@@ -168,6 +168,7 @@ class RunningHubAPI:
             return None
 
         result_url = None
+        task_completed = False
         try:
             for attempt in range(max_attempts):
                 logger.info(f"Getting task result for task {task_id} (attempt {attempt + 1}/{max_attempts})")
@@ -194,10 +195,12 @@ class RunningHubAPI:
                                 if result.get("fileUrl"):
                                     logger.info(f"Task {task_id} completed successfully")
                                     result_url = result["fileUrl"]
+                                    task_completed = True
                                     break
                                 elif result.get("text"):
                                     logger.info(f"Task {task_id} completed successfully")
                                     result_url = result["text"]
+                                    task_completed = True
                                     break
                                 else:
                                     logger.error("Task completed but no result found")
@@ -232,10 +235,11 @@ class RunningHubAPI:
             return result_url
             
         finally:
-            # Освобождаем аккаунт и удаляем задачу
-            if task_id in self.task_accounts:
+            # Освобождаем аккаунт только если задача завершилась или произошла ошибка
+            if task_id in self.task_accounts and (task_completed or not result_url):
                 await account_manager.release_account(account)
                 self.task_accounts.pop(task_id, None)
+                logger.info(f"Released account for task {task_id}")
 
     async def create_task(self, product_filename: str, background_filename: str, workflow_id: str, account: RunningHubAccount) -> Optional[str]:
         """Создает задачу в RunningHub"""

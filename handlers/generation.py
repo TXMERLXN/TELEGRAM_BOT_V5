@@ -194,33 +194,52 @@ async def handle_photo(message: Message, state: FSMContext) -> None:
         logger.info("Получена фотография фона")
         background_file_id = message.photo[-1].file_id
         
+        # Отправляем сообщение о начале генерации
+        status_message = await message.answer(
+            "Генерирую изображение, это может занять некоторое время...",
+            reply_markup=get_cancel_keyboard()
+        )
+        
         # Начинаем генерацию
         try:
-            await message.answer("Генерирую изображение, это может занять некоторое время...")
-            
-            result_url = await runninghub.generate_product_photo(
-                message.from_user.id,
-                product_file_id,
-                background_file_id
+            # Запускаем генерацию в отдельной задаче
+            task = asyncio.create_task(
+                runninghub.generate_product_photo(
+                    message.from_user.id,
+                    product_file_id,
+                    background_file_id
+                )
             )
+            generation_tasks[message.from_user.id] = task
             
+            result_url = await task
             if not result_url:
                 raise Exception("Failed to generate image")
                 
             # Отправляем результат
             await message.answer_photo(
                 URLInputFile(result_url),
-                caption="Готово! Вот ваше изображение"
+                caption="Готово! Вот ваше изображение",
+                reply_markup=get_main_menu_keyboard()
             )
+            await status_message.delete()
             
+        except asyncio.CancelledError:
+            logger.info("Задача генерации отменена пользователем")
+            await status_message.edit_text(
+                "Генерация отменена",
+                reply_markup=get_main_menu_keyboard()
+            )
         except Exception as e:
             logger.error(f"Ошибка генерации: {str(e)}")
-            await message.answer(
-                "Произошла ошибка при генерации изображения. Пожалуйста, попробуйте еще раз"
+            await status_message.edit_text(
+                "Произошла ошибка при генерации изображения. Пожалуйста, попробуйте еще раз",
+                reply_markup=get_main_menu_keyboard()
             )
         finally:
+            # Удаляем задачу из словаря
+            generation_tasks.pop(message.from_user.id, None)
             await state.clear()
-            logger.info("Получена фотография продукта")
 
 @router.callback_query(F.data == "back_to_main", GenerationState.waiting_for_product_image)
 @router.callback_query(F.data == "back_to_main", GenerationState.waiting_for_background_image)
