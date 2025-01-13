@@ -96,31 +96,19 @@ async def handle_background_photo(message: Message, state: FSMContext):
         # Сохраняем ID сообщения для обновления
         await state.update_data(processing_message_id=processing_message.message_id)
         
-        # Запускаем задачу
-        asyncio.create_task(process_generation_task(message, state, task))
-        
-    except Exception as e:
-        logger.error(f"Error creating task: {str(e)}")
-        await message.answer(GENERATION_FAILED)
-        await state.clear()
-
-async def process_generation_task(message: Message, state: FSMContext, task):
-    """Обработка задачи генерации"""
-    try:
-        result = await task
-        if result and isinstance(result, str):
-            # Отправляем результат
+        # Если задача выполнена успешно
+        if task:
             await message.answer_photo(
-                FSInputFile(result),
+                FSInputFile(task),
                 caption=PROCESSING_COMPLETE,
                 reply_markup=get_result_keyboard()
             )
         else:
             await message.answer(PROCESSING_FAILED)
+            
     except Exception as e:
-        logger.error(f"Error processing task: {str(e)}")
-        await message.answer(PROCESSING_FAILED)
-    finally:
+        logger.error(f"Error creating task: {str(e)}")
+        await message.answer(GENERATION_FAILED)
         await state.clear()
 
 @router.message(GenerationState.waiting_for_product)
