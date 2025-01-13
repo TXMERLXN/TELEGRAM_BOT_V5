@@ -34,10 +34,22 @@ def load_config() -> Config:
     # Load .env file
     load_dotenv()
 
-    bot_token = getenv("BOT_TOKEN")
-    if not bot_token:
-        logger.error("BOT_TOKEN environment variable is not set")
-        raise ValueError("BOT_TOKEN environment variable is not set")
+    # Проверяем наличие всех обязательных переменных окружения
+    required_vars = {
+        "BOT_TOKEN": "Telegram Bot Token",
+        "RUNNINGHUB_API_KEY_1": "RunningHub API Key",
+        "RUNNINGHUB_WORKFLOW_ID_1": "RunningHub Workflow ID"
+    }
+    
+    missing_vars = []
+    for var, description in required_vars.items():
+        if not getenv(var):
+            missing_vars.append(f"{var} ({description})")
+    
+    if missing_vars:
+        error_msg = "Missing required environment variables:\n" + "\n".join(missing_vars)
+        logger.error(error_msg)
+        raise ValueError(error_msg)
 
     # Load RunningHub accounts
     accounts = []
@@ -45,13 +57,21 @@ def load_config() -> Config:
     
     while True:
         api_key = getenv(f"RUNNINGHUB_API_KEY_{account_index}")
+        workflow_id = getenv(f"RUNNINGHUB_WORKFLOW_ID_{account_index}")
+        
+        # Если не найден API ключ, значит больше нет аккаунтов
         if not api_key:
             break
             
-        workflow_id = getenv(f"RUNNINGHUB_WORKFLOW_ID_{account_index}")
+        # Проверяем наличие workflow_id для этого аккаунта
         if not workflow_id:
-            logger.error(f"RUNNINGHUB_WORKFLOW_ID_{account_index} is not set")
-            break
+            logger.error(
+                f"RUNNINGHUB_WORKFLOW_ID_{account_index} is not set for API key "
+                f"{api_key[:5]}...{api_key[-5:]}"
+            )
+            raise ValueError(
+                f"RUNNINGHUB_WORKFLOW_ID_{account_index} is required for account {account_index}"
+            )
 
         try:
             max_jobs = int(getenv(f"RUNNINGHUB_MAX_JOBS_{account_index}", "5"))
@@ -68,14 +88,24 @@ def load_config() -> Config:
             max_jobs=max_jobs
         )
         accounts.append(account)
+        logger.info(
+            f"Loaded RunningHub account {account_index} "
+            f"(API key: {api_key[:5]}...{api_key[-5:]}, "
+            f"workflow: {workflow_id})"
+        )
         account_index += 1
 
     if not accounts:
-        logger.error("No RunningHub accounts configured")
-        raise ValueError("No RunningHub accounts configured")
+        error_msg = (
+            "No RunningHub accounts configured. Please set RUNNINGHUB_API_KEY_1 and "
+            "RUNNINGHUB_WORKFLOW_ID_1 environment variables"
+        )
+        logger.error(error_msg)
+        raise ValueError(error_msg)
 
+    logger.info(f"Successfully loaded {len(accounts)} RunningHub account(s)")
     return Config(
-        tg_bot=TgBot(token=bot_token),
+        tg_bot=TgBot(token=getenv("BOT_TOKEN")),
         runninghub=RunningHub(accounts=accounts)
     )
 
