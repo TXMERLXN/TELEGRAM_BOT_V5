@@ -45,7 +45,7 @@ async def main():
         for account in config.runninghub.accounts:
             task_queue.add_account(
                 api_key=account.api_key,
-                workflow_id=account.workflow_id,
+                workflow_id=account.workflows["product"],
                 max_concurrent_tasks=account.max_jobs
             )
         logger.info(f"Initialized {len(config.runninghub.accounts)} RunningHub accounts")
