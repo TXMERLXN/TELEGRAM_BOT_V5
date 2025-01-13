@@ -149,6 +149,36 @@ class RunningHubAPI:
             logger.error(f"Error checking task status: {str(e)}")
             return None
 
+    async def _check_account_status(self) -> Optional[bool]:
+        """Проверка статуса аккаунта"""
+        try:
+            data = {
+                "apikey": self.api_key
+            }
+            
+            headers = {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            }
+            
+            async with self.get_session().post(
+                f"{self.api_url}/uc/openapi/accountStatus",
+                json=data,
+                headers=headers,
+                timeout=30
+            ) as response:
+                result = await response.json()
+                logger.debug(f"Account status response: {result}")
+                
+                if response.status == 200 and result.get('code') == 0:
+                    task_count = int(result.get('data', {}).get('currentTaskCounts', '0'))
+                    return task_count > 0
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error checking account status: {str(e)}")
+            return None
+
     async def _wait_for_result(self, task_id: str) -> Optional[str]:
         """Ожидание результата генерации"""
         try:
@@ -165,13 +195,10 @@ class RunningHubAPI:
             max_attempts = 60  # Максимальное количество попыток (5 минут при задержке в 5 секунд)
             for attempt in range(max_attempts):
                 try:
-                    # Проверяем статус задачи
-                    status = await self._check_task_status(task_id)
-                    if status == "FAILED":
-                        logger.error(f"Task {task_id} failed")
-                        return None
-                    elif status == "QUEUED" or status == "RUNNING":
-                        logger.debug(f"Task {task_id} is {status}, waiting...")
+                    # Проверяем статус аккаунта
+                    is_busy = await self._check_account_status()
+                    if is_busy:
+                        logger.debug(f"Account is busy, waiting... [{attempt+1}/{max_attempts}]")
                         await asyncio.sleep(5)
                         continue
                     
@@ -183,7 +210,6 @@ class RunningHubAPI:
                         timeout=30
                     ) as response:
                         response_text = await response.text()
-                        logger.debug(f"Get result response [{attempt+1}/{max_attempts}]: {response_text}")
                         
                         if response.status != 200:
                             logger.error(f"Error response from API: Status {response.status}, Body: {response_text}")
