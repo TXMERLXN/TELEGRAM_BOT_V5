@@ -282,6 +282,7 @@ class RunningHubAPI:
                 }
                 
                 status, response_text = await self._make_request('post', url, json=payload)
+                logger.debug(f"Create task response: {response_text}")
                 
                 if status == 200 and response_text:
                     try:
@@ -317,7 +318,7 @@ class RunningHubAPI:
         Получает статус генерации и URL результата
         Возвращает: (status, result_url)
         """
-        url = f"{self.api_url}/task/openapi/outputs"
+        url = f"{self.api_url}/task/openapi/query"  # Используем правильный endpoint
         account = self.task_accounts.get(task_id)
         if not account:
             logger.error(f"No account found for task {task_id}")
@@ -329,35 +330,38 @@ class RunningHubAPI:
         }
 
         status, response_text = await self._make_request('post', url, json=payload)
+        logger.debug(f"Status check response: {response_text}")
+        
         if status == 200 and response_text:
             try:
                 data = json.loads(response_text)
-                logger.debug(f"Status response data: {data}")
-                
                 if data.get("code") == 0 and data.get("data"):
                     task_info = data["data"]
-                    logger.debug(f"Task info: {task_info}")
                     task_status = task_info.get("taskStatus", "").upper()
-                    logger.debug(f"Task status: {task_status}")
                     
                     if task_status == "SUCCEEDED":
-                        outputs = task_info.get("outputs", [])
-                        logger.debug(f"Task outputs: {outputs}")
+                        # Получаем результат через отдельный endpoint
+                        result_url = f"{self.api_url}/task/openapi/outputs"
+                        result_payload = {
+                            "taskId": task_id,
+                            "apiKey": account.api_key
+                        }
+                        result_status, result_response = await self._make_request('post', result_url, json=result_payload)
+                        logger.debug(f"Result response: {result_response}")
                         
-                        if isinstance(outputs, list) and outputs:
-                            for output in outputs:
-                                if output and isinstance(output, dict):
-                                    if output.get("fileUrl"):
-                                        return "completed", output["fileUrl"]
-                                    elif output.get("text"):
-                                        return "completed", output["text"]
-                        elif isinstance(outputs, dict):
-                            if outputs.get("fileUrl"):
-                                return "completed", outputs["fileUrl"]
-                            elif outputs.get("text"):
-                                return "completed", outputs["text"]
-                                
-                        logger.error(f"No output URL in completed task: {task_info}")
+                        if result_status == 200 and result_response:
+                            try:
+                                result_data = json.loads(result_response)
+                                if result_data.get("code") == 0 and result_data.get("data"):
+                                    outputs = result_data["data"]
+                                    if isinstance(outputs, list) and outputs:
+                                        for output in outputs:
+                                            if output.get("url"):  # API возвращает url, не fileUrl
+                                                return "completed", output["url"]
+                                    logger.error(f"No URL in outputs: {outputs}")
+                            except json.JSONDecodeError as e:
+                                logger.error(f"Failed to parse result response: {e}")
+                        
                         return "failed", None
                     elif task_status == "FAILED":
                         logger.error(f"Task failed: {task_info}")
