@@ -1,10 +1,9 @@
 import asyncio
 import logging
-from typing import Dict, Optional
+from typing import Dict, Optional, Any, Callable, Awaitable
 from dataclasses import dataclass
 from datetime import datetime
 from config import load_config
-from typing import Optional
 
 config = load_config()
 logger = logging.getLogger(__name__)
@@ -18,6 +17,8 @@ class TaskInfo:
     result_url: Optional[str] = None
     retries: int = 0
     error_message: Optional[str] = None
+    callback: Optional[Callable] = None
+    args: Optional[tuple] = None
 
 class TaskQueue:
     def __init__(self):
@@ -27,17 +28,42 @@ class TaskQueue:
         self.processing_tasks: Dict[str, asyncio.Task] = {}
         self.lock = asyncio.Lock()
         
-    async def add_task(self, user_id: int, task_id: str) -> None:
-        """Добавляет задачу в очередь"""
+    async def add_task(self, callback: Callable[..., Awaitable[Any]], *args) -> Any:
+        """
+        Добавляет задачу в очередь
+        
+        Args:
+            callback: Функция для выполнения
+            *args: Аргументы для функции
+            
+        Returns:
+            Результат выполнения функции
+        """
+        task_id = f"{len(self.active_tasks) + 1}"
+        user_id = args[-1] if args else 0  # Последний аргумент - user_id
+        
         task_info = TaskInfo(
             user_id=user_id,
             task_id=task_id,
             start_time=datetime.now(),
-            status="queued"
+            status="queued",
+            callback=callback,
+            args=args
         )
+        
         self.active_tasks[task_id] = task_info
-        await self.queue.put(task_id)
         logger.info(f"Task {task_id} added to queue for user {user_id}")
+        
+        # Выполняем функцию
+        try:
+            result = await callback(*args)
+            task_info.status = "completed"
+            task_info.result_url = result
+            return result
+        except Exception as e:
+            task_info.status = "failed"
+            task_info.error_message = str(e)
+            raise
 
     async def get_next_task(self) -> Optional[str]:
         """Получает следующую задачу из очереди"""
@@ -62,39 +88,42 @@ class TaskQueue:
         return self.active_tasks.get(task_id)
 
     def remove_task(self, task_id: str) -> None:
-        """Удаляет задачу из очереди"""
+        """Удаляет задачу"""
         if task_id in self.active_tasks:
             del self.active_tasks[task_id]
-            # Отменяем выполняющуюся задачу, если она есть
-            if task_id in self.processing_tasks:
-                self.processing_tasks[task_id].cancel()
-                del self.processing_tasks[task_id]
-            logger.info(f"Task {task_id} removed from queue")
+            logger.info(f"Task {task_id} removed")
 
-    async def process_task(self, task_id: str, process_func) -> None:
-        """Обрабатывает задачу с использованием семафора"""
-        async with self.semaphore:
-            try:
-                self.update_task_status(task_id, "processing")
-                # Сохраняем задачу для возможности отмены
-                processing_task = asyncio.create_task(process_func(task_id))
-                self.processing_tasks[task_id] = processing_task
-                
-                try:
-                    result = await processing_task
-                    if result:
-                        self.update_task_status(task_id, "completed", result)
-                    else:
-                        self.update_task_status(task_id, "failed", error_message="Task failed to complete")
-                except asyncio.CancelledError:
-                    self.update_task_status(task_id, "cancelled")
-                    raise
-                except Exception as e:
-                    logger.error(f"Error processing task {task_id}: {str(e)}")
-                    self.update_task_status(task_id, "failed", error_message=str(e))
-            finally:
-                self.processing_tasks.pop(task_id, None)
-                self.queue.task_done()
+    async def process_task(self, task_id: str) -> None:
+        """Обрабатывает задачу"""
+        if task_id not in self.active_tasks:
+            return
+
+        task_info = self.active_tasks[task_id]
+        if not task_info.callback:
+            return
+
+        try:
+            async with self.semaphore:
+                result = await task_info.callback(*task_info.args)
+                self.update_task_status(task_id, "completed", result_url=result)
+        except Exception as e:
+            logger.error(f"Error processing task {task_id}: {str(e)}")
+            self.update_task_status(task_id, "failed", error_message=str(e))
+        finally:
+            if task_id in self.processing_tasks:
+                del self.processing_tasks[task_id]
+
+    def get_active_tasks_count(self) -> int:
+        """Возвращает количество активных задач"""
+        return len(self.active_tasks)
+
+    def get_user_tasks(self, user_id: int) -> Dict[str, TaskInfo]:
+        """Получает все задачи пользователя"""
+        return {
+            task_id: task_info
+            for task_id, task_info in self.active_tasks.items()
+            if task_info.user_id == user_id
+        }
 
     def cancel_user_tasks(self, user_id: int) -> None:
         """Отменяет все задачи пользователя"""
