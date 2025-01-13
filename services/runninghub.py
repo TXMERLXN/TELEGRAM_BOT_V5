@@ -227,6 +227,7 @@ class RunningHubAPI:
                         else:
                             logger.error(f"Task creation failed with status {response.status}")
                             
+
             except Exception as e:
                 logger.error(f"Error creating task: {str(e)}")
             
@@ -249,63 +250,35 @@ class RunningHubAPI:
             workflow_id = self.current_account.workflows["product"]
             logger.info(f"Using RunningHub account with workflow_id: {workflow_id}")
 
-            # Создаем задачу
-            task_data = {
-                "workflow_id": workflow_id,
-                "inputs": {
-                    "product_image": product_image,
-                    "background_image": background_image
-                }
-            }
-
-            status, response = await self._make_request(
-                "post",
-                f"{self.api_url}/api/v1/task/create",
-                json=task_data
-            )
-
-            if status != 200:
-                logger.error(f"Failed to create task: {response}")
+            # Загружаем изображения
+            product_filename = await self.upload_image(product_image, "product.jpg")
+            if not product_filename:
+                logger.error("Failed to upload product image")
                 return None
 
-            task_id = json.loads(response).get("task_id")
+            background_filename = await self.upload_image(background_image, "background.jpg")
+            if not background_filename:
+                logger.error("Failed to upload background image")
+                return None
+
+            # Создаем задачу
+            task_id = await self.create_task(product_filename, background_filename, workflow_id)
             if not task_id:
-                logger.error("No task_id in response")
+                logger.error("Failed to create task")
                 return None
 
             logger.info(f"Created task {task_id} for user {user_id}")
 
+            # Добавляем задачу в очередь
+            await task_queue.add_task(user_id, task_id)
+
             # Ожидаем завершения задачи
-            while True:
-                status, response = await self._make_request(
-                    "get",
-                    f"{self.api_url}/api/v1/task/{task_id}/status"
-                )
+            result_url = await self._wait_for_task_completion(task_id)
+            if not result_url:
+                logger.error(f"Task {task_id} failed or timed out")
+                return None
 
-                if status != 200:
-                    logger.error(f"Failed to get task status: {response}")
-                    return None
-
-                task_status = json.loads(response)
-                if task_status.get("status") == "completed":
-                    # Получаем результат
-                    status, response = await self._make_request(
-                        "get",
-                        f"{self.api_url}/api/v1/task/{task_id}/result",
-                        return_bytes=True
-                    )
-
-                    if status != 200:
-                        logger.error(f"Failed to get task result: {response}")
-                        return None
-
-                    return response
-
-                elif task_status.get("status") in ["failed", "cancelled"]:
-                    logger.error(f"Task failed or cancelled: {task_status}")
-                    return None
-
-                await asyncio.sleep(2)
+            return result_url
 
         except Exception as e:
             logger.error(f"Error in generate_product_photo: {str(e)}")
@@ -338,7 +311,8 @@ class RunningHubAPI:
                     elif result.get("text"):
                         return "completed", result["text"]
                     else:
-                        return "failed", None
+                        logger.error("Task completed but no result found")
+                        return None
                 elif data.get("code") == 804:  # APIKEY_TASK_IS_RUNNING
                     return "processing", None
                 elif data.get("code") == 805:  # APIKEY_TASK_QUEUE
