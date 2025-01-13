@@ -74,9 +74,10 @@ class RunningHubAPI:
             # Загружаем фотографии в RunningHub
             logger.info("Uploading product image...")
             try:
+                # Создаем multipart form
                 form = aiohttp.FormData()
-                form.add_field('apikey', self.api_key)
-                form.add_field('type', 'product')
+                form.add_field('apiKey', self.api_key)
+                form.add_field('fileType', 'image')
                 form.add_field(
                     'file',
                     open(product_path, 'rb'),
@@ -84,7 +85,7 @@ class RunningHubAPI:
                     content_type='image/jpeg'
                 )
                 
-                upload_url = f"{self.api_url}/api/v1/upload"
+                upload_url = f"{self.api_url}/task/openapi/upload"
                 logger.info(f"Making request to {upload_url}")
                 
                 async with self.get_session().post(
@@ -101,9 +102,9 @@ class RunningHubAPI:
                     if product_result.get('code') != 0:
                         logger.error(f"Failed to upload product image: {product_result.get('msg')}")
                         return None
-                    product_url = product_result['data'].get('url')
+                    product_url = product_result['data'].get('fileName')
                     if not product_url:
-                        logger.error("No URL in product upload response")
+                        logger.error("No fileName in product upload response")
                         return None
                     logger.info(f"Successfully uploaded product image: {product_url}")
             except Exception as e:
@@ -117,9 +118,10 @@ class RunningHubAPI:
                     
             logger.info("Uploading background image...")
             try:
+                # Создаем multipart form
                 form = aiohttp.FormData()
-                form.add_field('apikey', self.api_key)
-                form.add_field('type', 'background')
+                form.add_field('apiKey', self.api_key)
+                form.add_field('fileType', 'image')
                 form.add_field(
                     'file',
                     open(background_path, 'rb'),
@@ -127,7 +129,7 @@ class RunningHubAPI:
                     content_type='image/jpeg'
                 )
                 
-                upload_url = f"{self.api_url}/api/v1/upload"
+                upload_url = f"{self.api_url}/task/openapi/upload"
                 logger.info(f"Making request to {upload_url}")
                 
                 async with self.get_session().post(
@@ -144,9 +146,9 @@ class RunningHubAPI:
                     if background_result.get('code') != 0:
                         logger.error(f"Failed to upload background image: {background_result.get('msg')}")
                         return None
-                    background_url = background_result['data'].get('url')
+                    background_url = background_result['data'].get('fileName')
                     if not background_url:
-                        logger.error("No URL in background upload response")
+                        logger.error("No fileName in background upload response")
                         return None
                     logger.info(f"Successfully uploaded background image: {background_url}")
             except Exception as e:
@@ -157,54 +159,53 @@ class RunningHubAPI:
                     for field in form._fields:
                         if hasattr(field[2], 'close'):
                             field[2].close()
-                    
-            # Создаем задачу
+                            
+            # Создаем задачу с загруженными изображениями
             logger.info(f"Creating task with workflow {self.workflow_id}")
             try:
                 task_data = {
-                    "apikey": self.api_key,
                     "workflowId": self.workflow_id,
-                    "inputs": {
-                        "product": product_url,
-                        "background": background_url
-                    }
+                    "apiKey": self.api_key,
+                    "nodeInfoList": [
+                        {
+                            "nodeId": "10",  # ID узла для продукта
+                            "fieldName": "image",
+                            "fieldValue": product_url
+                        },
+                        {
+                            "nodeId": "11",  # ID узла для фона
+                            "fieldName": "image",
+                            "fieldValue": background_url
+                        }
+                    ]
                 }
                 
                 async with self.get_session().post(
                     f"{self.api_url}/task/openapi/create",
                     json=task_data,
-                    headers={'Content-Type': 'application/json'},
                     timeout=30
                 ) as response:
                     response_text = await response.text()
-                    logger.debug(f"Task creation response: {response_text}")
-                    
+                    logger.info(f"Task creation response: {response_text}")
                     if response.status != 200:
                         logger.error(f"Failed to create task: Status {response.status}")
                         return None
                         
-                    try:
-                        result = await response.json()
-                    except Exception as e:
-                        logger.error(f"Failed to parse task creation response: {response_text}, Error: {str(e)}")
+                    task_result = await response.json()
+                    if task_result.get('code') != 0:
+                        logger.error(f"Failed to create task: {task_result.get('msg')}")
                         return None
                         
-                    if result.get('code') != 0:
-                        logger.error(f"Failed to create task: {result.get('msg')}")
-                        return None
-                        
-                    task_id = result.get('data', {}).get('taskId')
+                    task_id = task_result['data'].get('taskId')
                     if not task_id:
-                        logger.error(f"No taskId in response: {result}")
+                        logger.error("No taskId in response")
                         return None
                         
                     logger.info(f"Successfully created task: {task_id}")
-                    
-                    # Ждем результат
                     return await self._wait_for_result(task_id)
                     
             except Exception as e:
-                logger.error(f"Error creating task: {str(e)}", exc_info=True)
+                logger.error(f"Error creating task: {str(e)}")
                 return None
                 
         except Exception as e:
