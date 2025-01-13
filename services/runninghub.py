@@ -129,26 +129,18 @@ class RunningHubAPI:
     async def create_task(self, product_path: str, background_path: str) -> Optional[str]:
         """Создание задачи в RunningHub"""
         try:
-            # Создаем form-data с файлами и дополнительными параметрами
+            # Создаем form-data с файлами
             data = aiohttp.FormData()
-            
-            # Добавляем файлы
-            with open(product_path, 'rb') as f:
-                product_data = f.read()
-            with open(background_path, 'rb') as f:
-                background_data = f.read()
-                
-            data.add_field('product_image',
-                          product_data,
+            data.add_field('product',
+                          open(product_path, 'rb'),
                           filename='product.jpg',
                           content_type='image/jpeg')
-            data.add_field('background_image',
-                          background_data,
+            data.add_field('background',
+                          open(background_path, 'rb'),
                           filename='background.jpg',
                           content_type='image/jpeg')
             
-            # Добавляем API ключ и другие параметры
-            data.add_field('api_key', os.getenv('RUNNINGHUB_API_KEY', ''))
+            # Добавляем workflow ID
             data.add_field('workflow_id', os.getenv('RUNNINGHUB_WORKFLOW_PRODUCT', ''))
             
             logger.debug(f"Sending POST request to {self.api_url}/tasks")
@@ -168,9 +160,9 @@ class RunningHubAPI:
                 
                 if response.status == 200:
                     result = await response.json()
-                    task_id = result.get('task_id')
+                    task_id = result.get('id')  # API возвращает ID задачи в поле 'id'
                     if not task_id:
-                        logger.error(f"No task_id in response: {result}")
+                        logger.error(f"No task id in response: {result}")
                         return None
                     return task_id
                 else:
@@ -214,9 +206,9 @@ class RunningHubAPI:
                     logger.debug(f"Task {task_id} status: {status}")
                     
                     if status == 'completed':
-                        result_url = result.get('result_url')
+                        result_url = result.get('output_url')  # API возвращает URL в поле 'output_url'
                         if not result_url:
-                            logger.error(f"No result_url in completed task response: {result}")
+                            logger.error(f"No output_url in completed task response: {result}")
                             return None
                         return result_url
                     elif status == 'failed':
