@@ -227,14 +227,14 @@ class RunningHubAPI:
         
         for attempt in range(max_attempts):
             try:
-                # Проверяем статус задачи
+                # Сначала проверяем статус задачи
                 status_data = {
                     "taskId": task_id,
                     "apiKey": self.api_key
                 }
                 
                 async with self.get_session().post(
-                    f"{self.api_url}/task/openapi/outputs",
+                    f"{self.api_url}/task/openapi/status",
                     json=status_data,
                     timeout=30
                 ) as response:
@@ -254,22 +254,43 @@ class RunningHubAPI:
                             return None
                         await asyncio.sleep(delay)
                         continue
-                        
-                    # Проверяем, есть ли результат
-                    output_data = result.get('data', [])
-                    if output_data and isinstance(output_data, list) and len(output_data) > 0:
-                        output = output_data[0]
-                        file_url = output.get('fileUrl')
-                        task_cost_time = output.get('taskCostTime', '0')
-                        
-                        # Проверяем, что задача действительно выполнилась
-                        if file_url and task_cost_time != '0':
-                            logger.info(f"Task completed successfully in {task_cost_time}s, result URL: {file_url}")
-                            return file_url
-                        else:
-                            logger.info(f"Task {task_id} is still processing (cost time: {task_cost_time}), waiting...")
+                    
+                    task_status = result.get('data', {}).get('taskStatus')
+                    logger.info(f"Current task status: {task_status}")
+                    
+                    # Если задача завершена, получаем результат
+                    if task_status == 'COMPLETED':
+                        async with self.get_session().post(
+                            f"{self.api_url}/task/openapi/outputs",
+                            json=status_data,
+                            timeout=30
+                        ) as output_response:
+                            output_text = await output_response.text()
+                            logger.info(f"Task output response: {output_text}")
                             
-                    logger.info(f"Task {task_id} still processing, attempt {attempt + 1}/{max_attempts}")
+                            if output_response.status != 200:
+                                logger.error(f"Failed to get task output: Status {output_response.status}")
+                                await asyncio.sleep(delay)
+                                continue
+                                
+                            output_result = await output_response.json()
+                            if output_result.get('code') != 0:
+                                logger.error(f"API error in output: {output_result.get('msg', 'Unknown error')}")
+                                await asyncio.sleep(delay)
+                                continue
+                                
+                            output_data = output_result.get('data', [])
+                            if output_data and isinstance(output_data, list) and len(output_data) > 0:
+                                file_url = output_data[0].get('fileUrl')
+                                if file_url:
+                                    logger.info(f"Task completed successfully, result URL: {file_url}")
+                                    return file_url
+                    
+                    elif task_status == 'FAILED':
+                        logger.error(f"Task failed: {result.get('data', {}).get('promptTips')}")
+                        return None
+                    
+                    logger.info(f"Task {task_id} still processing (status: {task_status}), attempt {attempt + 1}/{max_attempts}")
                     await asyncio.sleep(delay)
                     
             except Exception as e:
