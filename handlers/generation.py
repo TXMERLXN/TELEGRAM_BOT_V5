@@ -19,9 +19,18 @@ from messages import (
 router = Router()
 runninghub = None
 
-def init_runninghub(bot):
+async def init_runninghub(bot: Bot):
+    """Инициализация RunningHub API"""
     global runninghub
-    runninghub = RunningHubAPI(bot)
+    runninghub = RunningHubAPI(
+        bot=bot,
+        api_url=config.runninghub.api_url,
+        task_timeout=config.runninghub.task_timeout,
+        retry_delay=config.runninghub.retry_delay,
+        max_retries=config.runninghub.max_retries,
+        polling_interval=config.runninghub.polling_interval
+    )
+    await runninghub.initialize()
 
 logger = logging.getLogger(__name__)
 

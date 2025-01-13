@@ -19,44 +19,55 @@ logger.setLevel(logging.DEBUG)
 logger.info("Initialized RunningHubAPI")
 
 class RunningHubAPI:
-    def __init__(self, bot=None):
-        self.headers = {
-            "Content-Type": "application/json"
-        }
-        self.api_url = config.runninghub.api_url
-        self.bot_token = config.tg_bot.token
-        self.session = None
-        # Таймауты для HTTP-запросов
-        self.timeout = aiohttp.ClientTimeout(
-            total=config.runninghub.task_timeout,
-            connect=60,  # Таймаут на подключение 1 минута
-            sock_read=300  # Таймаут на чтение 5 минут
-        )
-        self.max_retries = config.runninghub.max_retries
-        self.retry_delay = config.runninghub.retry_delay
-        self.max_image_size = 1024  # Максимальный размер изображения
-        # Словарь для хранения аккаунтов по task_id
-        self.task_accounts = {}
+    def __init__(self, bot: Bot, api_url: str = "https://www.runninghub.ai",
+                 task_timeout: int = 600, retry_delay: int = 5,
+                 max_retries: int = 3, polling_interval: int = 5):
+        """
+        Инициализация API RunningHub
+        
+        :param bot: Объект бота для загрузки файлов
+        :param api_url: URL API RunningHub
+        :param task_timeout: Таймаут задачи в секундах
+        :param retry_delay: Задержка между попытками в секундах
+        :param max_retries: Максимальное количество попыток
+        :param polling_interval: Интервал проверки статуса в секундах
+        """
         self.bot = bot
-        logger.setLevel(logging.DEBUG)
-        logger.info("Initialized RunningHubAPI")
+        self.api_url = api_url
+        self.task_timeout = task_timeout
+        self.retry_delay = retry_delay
+        self.max_retries = max_retries
+        self.polling_interval = polling_interval
+        self.task_accounts = {}
+        self.session = None
+        
+    async def __aenter__(self):
+        """Создаем сессию при входе в контекст"""
+        self.session = aiohttp.ClientSession()
+        return self
+        
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Закрываем сессию при выходе из контекста"""
+        if self.session:
+            await self.session.close()
+            self.session = None
 
-    async def initialize(self):
-        """Инициализация сессии"""
+    async def close(self):
+        """Закрываем сессию"""
+        if self.session:
+            await self.session.close()
+            self.session = None
+
+    async def ensure_session(self):
+        """Убеждаемся что сессия создана"""
         if not self.session:
             self.session = aiohttp.ClientSession()
 
-    async def close(self):
-        """Закрытие сессии"""
-        try:
-            if self.session and not self.session.closed:
-                await self.session.close()
-                self.session = None
-                logger.info("RunningHub session closed")
-        except Exception as e:
-            logger.error(f"Error closing RunningHub session: {str(e)}")
+    async def initialize(self):
+        """Инициализация сессии"""
+        await self.ensure_session()
 
-    def _resize_image(self, image_data: bytes) -> bytes:
+    async def _resize_image(self, image_data: bytes) -> bytes:
         """Уменьшает размер изображения, сохраняя пропорции"""
         try:
             # Открываем изображение из bytes
@@ -66,16 +77,16 @@ class RunningHubAPI:
             width, height = image.size
             
             # Если изображение меньше максимального размера, возвращаем как есть
-            if width <= self.max_image_size and height <= self.max_image_size:
+            if width <= 1024 and height <= 1024:
                 return image_data
             
             # Вычисляем новые размеры, сохраняя пропорции
             if width > height:
-                new_width = self.max_image_size
-                new_height = int(height * (self.max_image_size / width))
+                new_width = 1024
+                new_height = int(height * (1024 / width))
             else:
-                new_height = self.max_image_size
-                new_width = int(width * (self.max_image_size / height))
+                new_height = 1024
+                new_width = int(width * (1024 / height))
             
             # Изменяем размер
             resized_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
@@ -89,7 +100,7 @@ class RunningHubAPI:
             logger.error(f"Error resizing image: {str(e)}")
             return image_data
 
-    def _make_image_unique(self, image_data: bytes) -> bytes:
+    async def _make_image_unique(self, image_data: bytes) -> bytes:
         """Добавляет уникальные пиксели в изображение"""
         try:
             # Открываем изображение
@@ -130,6 +141,8 @@ class RunningHubAPI:
     async def upload_image(self, image_data: bytes, filename: str, account: RunningHubAccount) -> Optional[str]:
         """Загружает изображение в RunningHub"""
         url = f"{self.api_url}/openapi/upload"
+        
+        await self.ensure_session()  # Убеждаемся что сессия создана
         
         for attempt in range(self.max_retries):
             try:
@@ -290,6 +303,8 @@ class RunningHubAPI:
     async def create_task(self, product_image: str, background_image: str, account: RunningHubAccount) -> Optional[dict]:
         """Создает задачу в RunningHub"""
         url = f"{self.api_url}/openapi/submit/workflow"
+        
+        await self.ensure_session()  # Убеждаемся что сессия создана
         
         try:
             # Получаем workflow ID для продукта
@@ -465,7 +480,7 @@ class RunningHubAPI:
 
                 # Ждем результат
                 start_time = time.time()
-                while time.time() - start_time < config.runninghub.task_timeout:
+                while time.time() - start_time < self.task_timeout:
                     status, result_url = await self.get_generation_status(task_id)
                     
                     if status == "completed" and result_url:
@@ -478,7 +493,7 @@ class RunningHubAPI:
                         
                     # Продолжаем ждать, если задача в процессе
                     if status in ["processing", "queued"]:
-                        await asyncio.sleep(config.runninghub.polling_interval)
+                        await asyncio.sleep(self.polling_interval)
                         continue
                         
                     # Неизвестный статус
