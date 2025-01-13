@@ -6,6 +6,7 @@ import aiohttp
 from typing import Optional
 from aiogram import Bot
 from aiogram.types import FSInputFile
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -225,8 +226,13 @@ class RunningHubAPI:
         """Ожидание результата задачи"""
         logger.info(f"Waiting for task {task_id} result")
         
-        # Минимальное время ожидания перед первой проверкой (10 секунд)
-        await asyncio.sleep(10)
+        # Минимальное время ожидания перед первой проверкой (15 секунд)
+        await asyncio.sleep(15)
+        
+        # Сохраняем время начала задачи
+        start_time = time.time()
+        last_url = None
+        consecutive_same_url = 0
         
         for attempt in range(max_attempts):
             try:
@@ -288,14 +294,34 @@ class RunningHubAPI:
                                 file_url = output.get('fileUrl')
                                 task_cost_time = output.get('taskCostTime', '0')
                                 
-                                # Проверяем, что результат принадлежит текущей задаче
-                                if task_cost_time == '0':
+                                # Проверяем признаки кэшированного результата
+                                elapsed_time = time.time() - start_time
+                                is_cached = False
+                                
+                                if task_cost_time == '0' or task_cost_time == '1':
+                                    is_cached = True
+                                    logger.warning(f"Suspicious taskCostTime: {task_cost_time}")
+                                
+                                if elapsed_time < 20 and attempt < 2:
+                                    is_cached = True
+                                    logger.warning(f"Task completed too quickly: {elapsed_time:.1f}s")
+                                
+                                if file_url == last_url:
+                                    consecutive_same_url += 1
+                                    if consecutive_same_url >= 2:
+                                        is_cached = True
+                                        logger.warning(f"Same URL returned {consecutive_same_url} times")
+                                else:
+                                    consecutive_same_url = 0
+                                    last_url = file_url
+                                
+                                if is_cached:
                                     logger.warning("Got cached result, waiting for actual task completion")
                                     await asyncio.sleep(delay)
                                     continue
-                                    
+                                
                                 if file_url:
-                                    logger.info(f"Task completed successfully in {task_cost_time}s, result URL: {file_url}")
+                                    logger.info(f"Task completed successfully in {task_cost_time}s (total time: {elapsed_time:.1f}s), result URL: {file_url}")
                                     return file_url
                     
                     elif task_status == 'FAILED':
