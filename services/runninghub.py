@@ -122,16 +122,10 @@ class RunningHubAPI:
             logger.error(f"Error making image unique: {str(e)}")
             return image_data
 
-    async def _make_request(self, method: str, url: str, **kwargs) -> Tuple[int, Optional[str]]:
+    async def _make_request(self, method: str, url: str, **kwargs) -> Tuple[int, str]:
         """Выполняет HTTP запрос с повторными попытками"""
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with getattr(session, method)(url, **kwargs) as response:
-                    response_text = await response.text()
-                    return response.status, response_text
-        except Exception as e:
-            logger.error(f"HTTP request error: {str(e)}")
-            return 500, None
+        async with self.session.request(method, url, ssl=False, **kwargs) as response:
+            return response.status, await response.text()
 
     async def upload_image(self, image_data: bytes, filename: str, account: RunningHubAccount) -> Optional[str]:
         """Загружает изображение в RunningHub"""
@@ -139,12 +133,14 @@ class RunningHubAPI:
         
         for attempt in range(self.max_retries):
             try:
-                # Создаем форму для загрузки
+                # Создаем form-data с файлом и API ключом
                 form = aiohttp.FormData()
+                form.add_field('file', 
+                             image_data,
+                             filename=filename,
+                             content_type='image/png')
                 form.add_field('apiKey', account.api_key)
-                form.add_field('file', image_data, filename=filename, content_type='image/png')
                 
-                # Отправляем запрос
                 status, response_text = await self._make_request('post', url, data=form)
                 logger.debug(f"Upload response: {response_text}")
                 
@@ -158,10 +154,9 @@ class RunningHubAPI:
             except Exception as e:
                 logger.error(f"Error uploading image (attempt {attempt + 1}): {str(e)}")
                 
-            # Ждем перед следующей попыткой
             if attempt < self.max_retries - 1:
                 await asyncio.sleep(self.retry_delay)
-        
+                
         return None
 
     async def _get_telegram_file_path(self, file_id: str) -> Optional[str]:
