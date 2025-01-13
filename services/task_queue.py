@@ -32,14 +32,22 @@ class RunningHubAccount:
 class TaskQueue:
     """Класс для управления очередью задач и аккаунтами RunningHub"""
     
-    def __init__(self, bot: Bot, api_url: str):
-        self.bot = bot
-        self.api_url = api_url
+    def __init__(self):
+        self.bot = None
+        self.api_url = 'https://api.runninghub.com'  # Значение по умолчанию
         self.accounts: List[RunningHubAccount] = []
         self.apis: Dict[str, RunningHubAPI] = {}
         
+    def setup(self, bot: Bot, api_url: str):
+        """Настройка TaskQueue с ботом и URL API"""
+        self.bot = bot
+        self.api_url = api_url
+        
     def add_account(self, api_key: str, workflow_id: str, max_concurrent_tasks: int = 1):
         """Добавляет новый аккаунт в пул"""
+        if not self.bot:
+            raise RuntimeError("TaskQueue not initialized. Call setup() first")
+            
         account = RunningHubAccount(api_key, workflow_id, max_concurrent_tasks)
         self.accounts.append(account)
         # Создаем API клиент для аккаунта
@@ -54,6 +62,9 @@ class TaskQueue:
         
     async def initialize(self):
         """Инициализация всех API клиентов"""
+        if not self.bot:
+            raise RuntimeError("TaskQueue not initialized. Call setup() first")
+            
         for api in self.apis.values():
             await api.initialize()
             
@@ -71,6 +82,9 @@ class TaskQueue:
         
     async def process_photos(self, product_photo_id: str, background_photo_id: str, user_id: int) -> Optional[str]:
         """Обработка фотографий через доступный аккаунт"""
+        if not self.bot:
+            raise RuntimeError("TaskQueue not initialized. Call setup() first")
+            
         account = self.get_available_account()
         if not account:
             logger.warning("No available accounts for processing")
@@ -100,4 +114,5 @@ class TaskQueue:
         return sum(acc.current_tasks for acc in self.accounts)
 
 # Глобальный экземпляр очереди задач
-task_queue = TaskQueue(Bot(token=os.environ['BOT_TOKEN']), api_url='https://api.runninghub.com')
+task_queue = TaskQueue()
+task_queue.setup(Bot(token=os.environ['BOT_TOKEN']), api_url='https://api.runninghub.com')

@@ -32,13 +32,15 @@ async def main():
     logger.info(f"Bot token length: {len(config.tg_bot.token)}")
     
     try:
-        # Инициализация бота и диспетчера с защитой от повторного запуска
+        # Инициализируем бота
+        bot = Bot(token=config.tg_bot.token, parse_mode="HTML")
+        
+        # Настраиваем TaskQueue
+        task_queue.setup(bot, config.runninghub.api_url)
+        
+        # Создаем диспетчер
         dp = Dispatcher(storage=MemoryStorage())
-        bot = Bot(
-            token=config.tg_bot.token,
-            default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-        )
-
+        
         # Регистрация хендлеров
         dp.include_router(base.router)
         dp.include_router(generation.router)
