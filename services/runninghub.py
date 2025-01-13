@@ -192,9 +192,13 @@ class RunningHubAPI:
                                 result = data["data"][0]
                                 if result.get("fileUrl"):
                                     logger.info(f"Task {task_id} completed successfully")
+                                    await account_manager.release_account(account)
+                                    self.task_accounts.pop(task_id, None)
                                     return result["fileUrl"]
                                 elif result.get("text"):
                                     logger.info(f"Task {task_id} completed successfully")
+                                    await account_manager.release_account(account)
+                                    self.task_accounts.pop(task_id, None)
                                     return result["text"]
                                 else:
                                     logger.error("Task completed but no result found")
@@ -226,7 +230,7 @@ class RunningHubAPI:
             return None
             
         finally:
-            # Освобождаем аккаунт только после завершения всех попыток
+            # Освобождаем аккаунт только если он еще не был освобожден
             if task_id in self.task_accounts:
                 await account_manager.release_account(account)
                 self.task_accounts.pop(task_id, None)
