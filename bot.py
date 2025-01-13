@@ -41,26 +41,26 @@ async def main():
         # Настраиваем TaskQueue
         task_queue.setup(bot, config.runninghub.api_url)
         
+        # Инициализация RunningHub аккаунтов
+        for account in config.runninghub.accounts:
+            task_queue.add_account(
+                api_key=account.api_key,
+                workflow_id=account.workflow_id,
+                max_concurrent_tasks=account.max_jobs
+            )
+        logger.info(f"Initialized {len(config.runninghub.accounts)} RunningHub accounts")
+        
+        # Инициализируем все API клиенты
+        await task_queue.initialize()
+        
+        logger.info("==========================")
+        
         # Создаем диспетчер
         dp = Dispatcher(storage=MemoryStorage())
         
         # Регистрация хендлеров
         dp.include_router(base.router)
         dp.include_router(generation.router)
-        
-        # Инициализация RunningHub API
-        await generation.init_runninghub(bot)
-        
-        # Инициализация RunningHub аккаунтов
-        for account in config.runninghub.accounts:
-            account_manager.add_account(
-                api_key=account.api_key,
-                workflows=account.workflows,
-                max_jobs=account.max_jobs
-            )
-        logger.info(f"Initialized {len(config.runninghub.accounts)} RunningHub accounts")
-        
-        logger.info("==========================")
         
         # Запуск бота
         logger.info("Starting bot")
@@ -69,11 +69,8 @@ async def main():
         logger.error(f"Critical error: {str(e)}")
         raise
     finally:
-        # Освобождаем все аккаунты при остановке
-        await account_manager.release_all_accounts()
-        # Закрываем сессии
-        if generation.runninghub:
-            await generation.runninghub.close()
+        # Закрываем все соединения
+        await task_queue.close()
         if 'bot' in locals():
             await bot.session.close()
 
@@ -83,11 +80,6 @@ async def handle_sigterm(signum, frame):
     try:
         # Отменяем все активные задачи
         await task_queue.cancel_all_tasks()
-        # Освобождаем все аккаунты
-        await account_manager.release_all_accounts()
-        # Закрываем сессии
-        if generation.runninghub:
-            await generation.runninghub.close()
     except Exception as e:
         logger.error(f"Error during shutdown: {str(e)}")
     finally:
