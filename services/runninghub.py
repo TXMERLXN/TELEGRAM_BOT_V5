@@ -170,7 +170,13 @@ class RunningHubAPI:
                           content_type='image/jpeg')
             data.add_field('workflow_id', self.workflow_id)
             
-            logger.debug(f"Sending POST request to {self.api_url}/tasks")
+            # Логируем данные запроса
+            logger.info(f"Creating task with workflow_id: {self.workflow_id}")
+            logger.info(f"Product image path: {product_path}")
+            logger.info(f"Background image path: {background_path}")
+            logger.info(f"API URL: {self.api_url}/tasks")
+            logger.info(f"API Key (first 8 chars): {self.api_key[:8]}...")
+            
             headers = {
                 'Accept': 'application/json',
                 'X-API-Key': self.api_key
@@ -192,14 +198,20 @@ class RunningHubAPI:
                         if not task_id:
                             logger.error(f"No task_id in response: {result}")
                             return None
+                        logger.info(f"Successfully created task: {task_id}")
                         return task_id
                     else:
-                        error_msg = await response.json()
+                        try:
+                            error_msg = await response.json()
+                        except:
+                            error_msg = response_text
                         logger.error(f"Error creating task: {response.status} - {error_msg}")
                         return None
                     
         except Exception as e:
             logger.error(f"Error creating task: {str(e)}")
+            if isinstance(e, aiohttp.ClientError):
+                logger.error(f"Client error details: {str(e.__dict__)}")
             return None
             
     async def _wait_for_result(self, task_id: str) -> Optional[str]:
