@@ -33,7 +33,10 @@ async def main():
     
     try:
         # Инициализируем бота
-        bot = Bot(token=config.tg_bot.token, parse_mode="HTML")
+        bot = Bot(
+            token=config.tg_bot.token,
+            default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+        )
         
         # Настраиваем TaskQueue
         task_queue.setup(bot, config.runninghub.api_url)
