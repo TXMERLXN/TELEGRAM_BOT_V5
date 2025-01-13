@@ -16,11 +16,13 @@ config = load_config()
 logger = logging.getLogger(__name__)
 
 class RunningHubAPI:
-    def __init__(self):
+    def __init__(self, bot=None):
         self.headers = {
             "Content-Type": "application/json"
         }
-        self.api_url = "https://www.runninghub.ai"
+        self.api_url = config.runninghub.api_url
+        self.bot_token = config.tg_bot.token
+        self.session = aiohttp.ClientSession()
         # Таймауты для HTTP-запросов
         self.timeout = aiohttp.ClientTimeout(
             total=config.runninghub.task_timeout,
@@ -32,6 +34,7 @@ class RunningHubAPI:
         self.max_image_size = 1024  # Максимальный размер изображения
         # Словарь для хранения аккаунтов по task_id
         self.task_accounts = {}
+        self.bot = bot
         logger.info("Initialized RunningHubAPI")
 
     def _resize_image(self, image_data: bytes) -> bytes:

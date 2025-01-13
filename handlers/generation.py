@@ -17,7 +17,12 @@ from messages import (
 )
 
 router = Router()
-runninghub = RunningHubAPI()
+runninghub = None
+
+def init_runninghub(bot):
+    global runninghub
+    runninghub = RunningHubAPI(bot)
+
 logger = logging.getLogger(__name__)
 
 # Словарь для хранения задач генерации
@@ -68,25 +73,32 @@ async def process_background_image(message: Message, state: FSMContext):
         reply_markup=get_cancel_keyboard()
     )
     
-    # Запускаем генерацию
-    task = asyncio.create_task(
-        generate_photo(message, state, product_image, message.photo[-1].file_id, status_message)
-    )
-    generation_tasks[message.from_user.id] = task
-    
     try:
-        await task
-    except asyncio.CancelledError:
-        logger.info("Задача генерации отменена пользователем")
+        # Запускаем генерацию
+        result_url = await runninghub.generate_product_photo(
+            message.from_user.id,
+            product_image,
+            message.photo[-1].file_id
+        )
+        
+        if not result_url:
+            raise Exception("Failed to generate image")
+            
+        # Отправляем результат
+        await message.answer_photo(
+            URLInputFile(result_url),
+            caption=GENERATION_COMPLETE(),
+            reply_markup=get_main_menu_keyboard()
+        )
+        await status_message.delete()
+        
     except Exception as e:
-        logger.error(f"Ошибка генерации: {str(e)}")
+        logger.error("Не удалось создать задачу генерации")
         await status_message.edit_text(
             GENERATION_ERROR(),
             reply_markup=get_main_menu_keyboard()
         )
     finally:
-        # Удаляем задачу из словаря
-        generation_tasks.pop(message.from_user.id, None)
         await state.clear()
 
 async def generate_photo(

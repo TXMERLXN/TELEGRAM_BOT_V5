@@ -43,6 +43,9 @@ async def main():
         dp.include_router(base.router)
         dp.include_router(generation.router)
         
+        # Инициализация RunningHub API
+        generation.init_runninghub(bot)
+        
         # Инициализация RunningHub аккаунтов
         for account in config.runninghub.accounts:
             account_manager.add_account(
