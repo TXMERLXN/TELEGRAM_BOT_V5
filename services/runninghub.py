@@ -364,8 +364,8 @@ class RunningHubAPI:
                                     outputs = result_data["data"]
                                     if isinstance(outputs, list) and outputs:
                                         for output in outputs:
-                                            if output.get("url"):  # API возвращает url, не fileUrl
-                                                return "completed", output["url"]
+                                            if output.get("fileUrl"):  # API возвращает fileUrl
+                                                return "completed", output["fileUrl"]
                                     logger.error(f"No URL in outputs: {outputs}")
                             except json.JSONDecodeError as e:
                                 logger.error(f"Failed to parse result response: {e}")

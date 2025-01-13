@@ -184,8 +184,9 @@ Telegram бот для генерации профессиональных фо�
     "msg": "success",
     "data": [
       {
-        "url": "https://output.url/image.png",
-        "type": "image"
+        "fileUrl": "https://output.url/image.png",
+        "fileType": "png",
+        "taskCostTime": "1"
       }
     ]
   }
