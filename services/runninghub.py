@@ -36,6 +36,7 @@ class RunningHubAPI:
         # Словарь для хранения аккаунтов по task_id
         self.task_accounts = {}
         self.bot = bot
+        logger.setLevel(logging.DEBUG)
         logger.info("Initialized RunningHubAPI")
 
     async def initialize(self):
@@ -189,12 +190,12 @@ class RunningHubAPI:
             for attempt in range(max_attempts):
                 logger.info(f"Getting task result for task {task_id} (attempt {attempt + 1}/{max_attempts})")
                 
-                payload = {
-                    "taskId": task_id,
-                    "apiKey": account.api_key
-                }
-
                 try:
+                    payload = {
+                        "taskId": task_id,
+                        "apiKey": account.api_key
+                    }
+
                     status, response_text = await self._make_request('post', url, json=payload)
                     
                     if status == 504:  # Gateway Timeout
@@ -331,17 +332,31 @@ class RunningHubAPI:
         if status == 200 and response_text:
             try:
                 data = json.loads(response_text)
+                logger.debug(f"Status response data: {data}")
+                
                 if data.get("code") == 0 and data.get("data"):
                     task_info = data["data"]
+                    logger.debug(f"Task info: {task_info}")
                     task_status = task_info.get("taskStatus", "").upper()
+                    logger.debug(f"Task status: {task_status}")
                     
                     if task_status == "SUCCEEDED":
-                        outputs = task_info.get("outputs", {})
-                        if outputs and isinstance(outputs, dict):
+                        outputs = task_info.get("outputs", [])
+                        logger.debug(f"Task outputs: {outputs}")
+                        
+                        if isinstance(outputs, list) and outputs:
+                            for output in outputs:
+                                if output and isinstance(output, dict):
+                                    if output.get("fileUrl"):
+                                        return "completed", output["fileUrl"]
+                                    elif output.get("text"):
+                                        return "completed", output["text"]
+                        elif isinstance(outputs, dict):
                             if outputs.get("fileUrl"):
                                 return "completed", outputs["fileUrl"]
                             elif outputs.get("text"):
                                 return "completed", outputs["text"]
+                                
                         logger.error(f"No output URL in completed task: {task_info}")
                         return "failed", None
                     elif task_status == "FAILED":
@@ -363,7 +378,7 @@ class RunningHubAPI:
                 logger.error(f"Failed to parse task status response: {e}")
                 return "failed", None
             except Exception as e:
-                logger.error(f"Error checking task status: {e}")
+                logger.error(f"Error checking task status: {str(e)}\nResponse: {response_text}")
                 return "failed", None
         return "failed", None
 
