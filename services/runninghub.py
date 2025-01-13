@@ -2,7 +2,7 @@ import aiohttp
 import json
 import logging
 import asyncio
-from typing import Optional, Dict, Union
+from typing import Optional, Dict, Union, Tuple
 from PIL import Image
 import io
 from config import load_config
@@ -87,16 +87,13 @@ class RunningHubAPI:
             logger.error(f"Error resizing image: {str(e)}")
             return image_data
 
-    async def _make_request(self, method: str, url: str, return_bytes: bool = False, **kwargs) -> tuple[int, Optional[Union[str, bytes]]]:
-        """Делает HTTP запрос с повторными попытками"""
-        if not self.session:
-            await self.initialize()
-            
+    async def _make_request(self, method: str, url: str, **kwargs) -> Tuple[int, Optional[str]]:
+        """Выполняет HTTP запрос с повторными попытками"""
         try:
-            async with self.session.request(method, url, **kwargs) as response:
-                if return_bytes:
-                    return response.status, await response.read()
-                return response.status, await response.text()
+            async with aiohttp.ClientSession() as session:
+                async with getattr(session, method)(url, **kwargs) as response:
+                    response_text = await response.text()
+                    return response.status, response_text
         except Exception as e:
             logger.error(f"HTTP request error: {str(e)}")
             return 500, None
@@ -107,18 +104,13 @@ class RunningHubAPI:
         
         for attempt in range(self.max_retries):
             try:
-                # Создаем файл для загрузки
-                files = {
-                    'file': (filename, image_data, 'image/png')
-                }
-                
-                # Добавляем API ключ в параметры запроса
-                params = {
-                    'apiKey': account.api_key
-                }
+                # Создаем форму для загрузки
+                form = aiohttp.FormData()
+                form.add_field('apiKey', account.api_key)
+                form.add_field('file', image_data, filename=filename, content_type='image/png')
                 
                 # Отправляем запрос
-                status, response_text = await self._make_request('post', url, files=files, params=params)
+                status, response_text = await self._make_request('post', url, data=form)
                 logger.debug(f"Upload response: {response_text}")
                 
                 if status == 200:
