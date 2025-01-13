@@ -149,7 +149,7 @@ Telegram бот для генерации профессиональных фо�
   ```
 
 #### Query Task Status
-- **URL**: `/task/openapi/query`
+- **URL**: `/task/openapi/status`
 - **Method**: POST
 - **Parameters**:
   ```json
@@ -199,6 +199,7 @@ Telegram бот для генерации профессиональных фо�
 
 ### Error Codes
 - `0`: Success
+- `404`: Not Found
 - `804`: Task is running (APIKEY_TASK_IS_RUNNING)
 - `805`: Task is in queue (APIKEY_TASK_QUEUE)
 

@@ -318,7 +318,7 @@ class RunningHubAPI:
         Получает статус генерации и URL результата
         Возвращает: (status, result_url)
         """
-        url = f"{self.api_url}/task/openapi/query"  # Используем правильный endpoint
+        url = f"{self.api_url}/task/openapi/status"  # Исправляем endpoint для проверки статуса
         account = self.task_accounts.get(task_id)
         if not account:
             logger.error(f"No account found for task {task_id}")
