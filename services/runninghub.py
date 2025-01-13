@@ -397,7 +397,6 @@ class RunningHubAPI:
     async def generate_product_photo(self, user_id: int, product_file_id: str, background_file_id: str) -> Optional[str]:
         """Генерирует фото продукта с новым фоном"""
         try:
-            # Получаем аккаунт для генерации
             account = await account_manager.get_available_account('product')
             if not account:
                 logger.error("No available accounts for product generation")
@@ -423,65 +422,62 @@ class RunningHubAPI:
                 await account_manager.release_account(account)
                 return None
 
-            # Создаем временные файлы
-            with NamedTemporaryFile(suffix='.png', delete=False) as product_file, \
-                 NamedTemporaryFile(suffix='.png', delete=False) as background_file:
-                
-                # Записываем данные во временные файлы
-                product_file.write(product_data)
-                background_file.write(background_data)
-                product_file.flush()
-                background_file.flush()
-                
-                try:
-                    # Создаем задачу
-                    task_id = await self.create_task(
-                        product_file.name,
-                        background_file.name,
-                        workflow_id,
-                        account
-                    )
-                    
-                    if not task_id:
-                        logger.error("Failed to create task")
-                        await account_manager.release_account(account)
-                        return None
+            # Загружаем файлы на RunningHub
+            product_filename = await self.upload_image(product_data, "product.png", account)
+            if not product_filename:
+                logger.error("Failed to upload product image")
+                await account_manager.release_account(account)
+                return None
 
-                    # Ждем результат
-                    start_time = time.time()
-                    while time.time() - start_time < config.runninghub.task_timeout:
-                        status, result_url = await self.get_generation_status(task_id)
-                        
-                        if status == "completed" and result_url:
-                            logger.info(f"Task {task_id} completed successfully")
-                            return result_url
-                            
-                        if status == "failed":
-                            logger.error(f"Task {task_id} failed")
-                            break
-                            
-                        # Продолжаем ждать, если задача в процессе
-                        if status in ["processing", "queued"]:
-                            await asyncio.sleep(config.runninghub.polling_interval)
-                            continue
-                            
-                        # Неизвестный статус
-                        logger.error(f"Unknown task status: {status}")
-                        break
-                    
-                    logger.error(f"Task {task_id} timed out")
-                    return None
-                    
-                finally:
-                    # Удаляем временные файлы
-                    try:
-                        os.unlink(product_file.name)
-                        os.unlink(background_file.name)
-                    except Exception as e:
-                        logger.error(f"Error removing temporary files: {str(e)}")
-                    # Освобождаем аккаунт
+            background_filename = await self.upload_image(background_data, "background.png", account)
+            if not background_filename:
+                logger.error("Failed to upload background image")
+                await account_manager.release_account(account)
+                return None
+
+            try:
+                # Создаем задачу
+                task_id = await self.create_task(
+                    product_filename,
+                    background_filename,
+                    workflow_id,
+                    account
+                )
+                
+                if not task_id:
+                    logger.error("Failed to create task")
                     await account_manager.release_account(account)
+                    return None
+
+                # Ждем результат
+                start_time = time.time()
+                while time.time() - start_time < config.runninghub.task_timeout:
+                    status, result_url = await self.get_generation_status(task_id)
                     
+                    if status == "completed" and result_url:
+                        logger.info(f"Task {task_id} completed successfully")
+                        return result_url
+                        
+                    if status == "failed":
+                        logger.error(f"Task {task_id} failed")
+                        break
+                        
+                    # Продолжаем ждать, если задача в процессе
+                    if status in ["processing", "queued"]:
+                        await asyncio.sleep(config.runninghub.polling_interval)
+                        continue
+                        
+                    # Неизвестный статус
+                    logger.error(f"Unknown task status: {status}")
+                    break
+                
+                logger.error(f"Task {task_id} timed out")
+                return None
+                
+            finally:
+                # Освобождаем аккаунт
+                await account_manager.release_account(account)
+                
         except Exception as e:
             logger.error(f"Error generating product photo: {str(e)}")
             if 'account' in locals():
