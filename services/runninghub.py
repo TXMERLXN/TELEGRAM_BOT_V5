@@ -12,32 +12,38 @@ import random
 logger = logging.getLogger(__name__)
 
 class RunningHubAPI:
-    """API клиент для RunningHub"""
+    """Класс для работы с API RunningHub"""
     
-    def __init__(self, bot: Bot, api_url: str, api_key: str, workflow_id: str):
-        self.bot = bot
-        self.api_url = api_url.rstrip('/')  # Убираем trailing slash
+    def __init__(self, api_url: str, api_key: str, workflow_id: str, max_tasks: int = 5):
+        """Инициализация API клиента"""
+        self.api_url = api_url
         self.api_key = api_key
         self.workflow_id = workflow_id
+        self.max_tasks = max_tasks
+        self.current_tasks = 0
         self._session = None
-        
-    async def initialize(self):
-        """Инициализация клиента"""
-        if not self._session:
+        self._lock = asyncio.Lock()
+        self.logger = logging.getLogger(__name__)
+
+    def initialize_client(self) -> None:
+        """Инициализация aiohttp сессии"""
+        if self._session is None:
             self._session = aiohttp.ClientSession()
-            logger.info("Created new aiohttp session")
-            
-    async def close(self):
-        """Закрытие клиента"""
-        if self._session:
-            await self._session.close()
+            self.logger.info("Created new aiohttp session")
+
+    def close_client(self) -> None:
+        """Закрытие aiohttp сессии"""
+        if self._session is not None:
+            if not self._session.closed:
+                self._session.close()
             self._session = None
-            logger.info("Closed aiohttp session")
-            
+            self.logger.info("Closed aiohttp session")
+
     def get_session(self) -> aiohttp.ClientSession:
-        """Получение сессии"""
-        if not self._session:
-            raise RuntimeError("Session not initialized. Call initialize() first")
+        """Получение aiohttp сессии"""
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+            self.logger.info("Created new aiohttp session")
         return self._session
 
     async def _upload_image(self, image_path: str, file_type: str = "image") -> Optional[str]:
