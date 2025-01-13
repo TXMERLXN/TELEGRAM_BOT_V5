@@ -38,168 +38,167 @@ class RunningHubAPI:
             raise RuntimeError("Session not initialized. Call initialize() first")
         return self._session
 
-    async def upload_image(self, image_path: str) -> Optional[str]:
-        """Загрузка изображения в RunningHub"""
+    async def process_photos(self, user_id: int, product_photo: str, background_photo: str) -> Optional[str]:
+        """Обработка фотографий"""
         try:
-            data = aiohttp.FormData()
-            data.add_field('apiKey', self.api_key)
-            data.add_field('fileType', 'image')
-            data.add_field('file', 
-                          open(image_path, 'rb'),
-                          filename=os.path.basename(image_path),
-                          content_type='image/jpeg')
-
-            async with self.get_session().post(
-                f"{self.api_url}/task/openapi/upload",
-                data=data,
-                timeout=30
-            ) as response:
-                result = await response.json()
-                logger.debug(f"Upload response: {result}")
-                
-                if response.status == 200 and result.get('code') == 0:
-                    return result['data']['fileName']
-                else:
-                    raise RuntimeError(f"Failed to upload image: {result}")
-                    
-        except Exception as e:
-            logger.error(f"Error uploading image: {str(e)}")
-            raise
-
-    async def create_task(self, product_path: str, background_path: str) -> Optional[str]:
-        """Создание задачи в RunningHub"""
-        try:
-            # Сначала загружаем изображения
-            logger.info("Uploading product image...")
-            product_file = await self.upload_image(product_path)
-            logger.info("Uploading background image...")
-            background_file = await self.upload_image(background_path)
+            logger.info(f"Starting photo processing for user {user_id}")
             
-            # Создаем задачу с загруженными изображениями
-            data = {
-                "workflowId": self.workflow_id,
-                "apiKey": self.api_key,
-                "nodeInfoList": [
-                    {
-                        "nodeId": "2",  # ID ноды для продукта
-                        "fieldName": "image",
-                        "fieldValue": product_file
-                    },
-                    {
-                        "nodeId": "32",  # ID ноды для фона
-                        "fieldName": "image",
-                        "fieldValue": background_file
-                    }
-                ]
-            }
-            
-            headers = {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            }
-            
-            logger.info(f"Creating task with workflow {self.workflow_id}")
-            async with self.get_session().post(
-                f"{self.api_url}/task/openapi/create",
-                json=data,
-                headers=headers,
-                timeout=30
-            ) as response:
-                result = await response.json()
-                logger.debug(f"Create task response: {result}")
-                
-                if response.status == 200 and result.get('code') == 0:
-                    task_id = result['data']['taskId']
-                    logger.info(f"Successfully created task: {task_id}")
-                    return task_id
-                else:
-                    raise RuntimeError(f"Failed to create task: {result}")
-                    
-        except Exception as e:
-            logger.error(f"Error in create_task: {str(e)}")
-            raise
-
-    async def _check_task_status(self, task_id: str) -> Optional[str]:
-        """Проверка статуса задачи"""
-        try:
-            data = {
-                "taskId": task_id,
-                "apiKey": self.api_key
-            }
-            
-            headers = {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            }
-            
-            async with self.get_session().post(
-                f"{self.api_url}/task/openapi/status",
-                json=data,
-                headers=headers,
-                timeout=30
-            ) as response:
-                result = await response.json()
-                logger.debug(f"Task status response: {result}")
-                
-                if response.status == 200 and result.get('code') == 0:
-                    return result.get('data', {}).get('taskStatus')
-                return None
-                
-        except Exception as e:
-            logger.error(f"Error checking task status: {str(e)}")
-            return None
-
-    async def _check_account_status(self) -> Optional[bool]:
-        """Проверка статуса аккаунта"""
-        try:
-            data = {
-                "apikey": self.api_key
-            }
-            
-            headers = {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            }
+            # Скачиваем фотографии
+            product_path = f"temp/product_{user_id}.jpg"
+            background_path = f"temp/background_{user_id}.jpg"
             
             try:
+                async with self.get_session().get(product_photo) as response:
+                    if response.status != 200:
+                        logger.error(f"Failed to download product photo: {response.status}")
+                        return None
+                    with open(product_path, 'wb') as f:
+                        f.write(await response.read())
+                logger.info(f"Successfully downloaded product photo to {product_path}")
+            except Exception as e:
+                logger.error(f"Error downloading product photo: {str(e)}")
+                return None
+                
+            try:
+                async with self.get_session().get(background_photo) as response:
+                    if response.status != 200:
+                        logger.error(f"Failed to download background photo: {response.status}")
+                        return None
+                    with open(background_path, 'wb') as f:
+                        f.write(await response.read())
+                logger.info(f"Successfully downloaded background photo to {background_path}")
+            except Exception as e:
+                logger.error(f"Error downloading background photo: {str(e)}")
+                return None
+            
+            # Загружаем фотографии в RunningHub
+            logger.info("Uploading product image...")
+            try:
+                product_upload_data = {
+                    'apikey': self.api_key,
+                    'type': 'product'
+                }
+                product_files = {'file': open(product_path, 'rb')}
                 async with self.get_session().post(
-                    f"{self.api_url}/uc/openapi/accountStatus",
-                    json=data,
-                    headers=headers,
+                    f"{self.api_url}/uc/openapi/upload",
+                    data=product_upload_data,
+                    data_files=product_files,
                     timeout=30
                 ) as response:
                     response_text = await response.text()
-                    logger.debug(f"Account status response: {response_text}")
+                    logger.debug(f"Product upload response: {response_text}")
+                    if response.status != 200:
+                        logger.error(f"Failed to upload product image: Status {response.status}")
+                        return None
+                    product_result = await response.json()
+                    if product_result.get('code') != 0:
+                        logger.error(f"Failed to upload product image: {product_result.get('msg')}")
+                        return None
+                    product_url = product_result['data'].get('url')
+                    if not product_url:
+                        logger.error("No URL in product upload response")
+                        return None
+            except Exception as e:
+                logger.error(f"Error uploading product image: {str(e)}")
+                return None
+            finally:
+                if 'product_files' in locals():
+                    product_files['file'].close()
+                    
+            logger.info("Uploading background image...")
+            try:
+                background_upload_data = {
+                    'apikey': self.api_key,
+                    'type': 'background'
+                }
+                background_files = {'file': open(background_path, 'rb')}
+                async with self.get_session().post(
+                    f"{self.api_url}/uc/openapi/upload",
+                    data=background_upload_data,
+                    data_files=background_files,
+                    timeout=30
+                ) as response:
+                    response_text = await response.text()
+                    logger.debug(f"Background upload response: {response_text}")
+                    if response.status != 200:
+                        logger.error(f"Failed to upload background image: Status {response.status}")
+                        return None
+                    background_result = await response.json()
+                    if background_result.get('code') != 0:
+                        logger.error(f"Failed to upload background image: {background_result.get('msg')}")
+                        return None
+                    background_url = background_result['data'].get('url')
+                    if not background_url:
+                        logger.error("No URL in background upload response")
+                        return None
+            except Exception as e:
+                logger.error(f"Error uploading background image: {str(e)}")
+                return None
+            finally:
+                if 'background_files' in locals():
+                    background_files['file'].close()
+                    
+            # Создаем задачу
+            logger.info(f"Creating task with workflow {self.workflow_id}")
+            try:
+                task_data = {
+                    "apikey": self.api_key,
+                    "workflowId": self.workflow_id,
+                    "inputs": {
+                        "product": product_url,
+                        "background": background_url
+                    }
+                }
+                
+                async with self.get_session().post(
+                    f"{self.api_url}/task/openapi/create",
+                    json=task_data,
+                    headers={'Content-Type': 'application/json'},
+                    timeout=30
+                ) as response:
+                    response_text = await response.text()
+                    logger.debug(f"Task creation response: {response_text}")
                     
                     if response.status != 200:
-                        logger.error(f"Error response from account status API: Status {response.status}, Body: {response_text}")
+                        logger.error(f"Failed to create task: Status {response.status}")
                         return None
                         
                     try:
                         result = await response.json()
                     except Exception as e:
-                        logger.error(f"Failed to parse account status JSON response: {response_text}, Error: {str(e)}")
+                        logger.error(f"Failed to parse task creation response: {response_text}, Error: {str(e)}")
                         return None
-                    
+                        
                     if result.get('code') != 0:
-                        error_msg = result.get('msg', 'Unknown error')
-                        logger.error(f"Account status API error: {error_msg}")
+                        logger.error(f"Failed to create task: {result.get('msg')}")
                         return None
+                        
+                    task_id = result.get('data', {}).get('taskId')
+                    if not task_id:
+                        logger.error(f"No taskId in response: {result}")
+                        return None
+                        
+                    logger.info(f"Successfully created task: {task_id}")
                     
-                    task_count = int(result.get('data', {}).get('currentTaskCounts', '0'))
-                    logger.debug(f"Current task count: {task_count}")
-                    return task_count > 0
+                    # Ждем результат
+                    return await self._wait_for_result(task_id)
                     
-            except asyncio.TimeoutError:
-                logger.error("Timeout while checking account status")
-                return None
             except Exception as e:
-                logger.error(f"HTTP error while checking account status: {str(e)}")
+                logger.error(f"Error creating task: {str(e)}", exc_info=True)
                 return None
                 
         except Exception as e:
-            logger.error(f"Error checking account status: {str(e)}", exc_info=True)
+            logger.error(f"Error processing photos: {str(e)}", exc_info=True)
             return None
+        finally:
+            # Удаляем временные файлы
+            try:
+                if os.path.exists(product_path):
+                    os.remove(product_path)
+                if os.path.exists(background_path):
+                    os.remove(background_path)
+            except Exception as e:
+                logger.error(f"Error cleaning up temporary files: {str(e)}")
 
     async def _wait_for_result(self, task_id: str) -> Optional[str]:
         """Ожидание результата генерации"""
@@ -303,52 +302,54 @@ class RunningHubAPI:
             logger.error(f"Error getting task result: {str(e)}")
             raise
 
-    async def process_photos(self, product_photo_id: str, background_photo_id: str, user_id: int) -> Optional[str]:
-        """Обработка фотографий"""
+    async def _check_account_status(self) -> Optional[bool]:
+        """Проверка статуса аккаунта"""
         try:
-            logger.info(f"Starting photo processing for user {user_id}")
+            data = {
+                "apikey": self.api_key
+            }
             
-            # Создаем директорию temp если её нет
-            os.makedirs("temp", exist_ok=True)
-            
-            # Скачиваем фотографии
-            product_path = f"temp/product_{user_id}.jpg"
-            background_path = f"temp/background_{user_id}.jpg"
-            
-            # Получаем информацию о файлах
-            product_file = await self.bot.get_file(product_photo_id)
-            background_file = await self.bot.get_file(background_photo_id)
-            
-            # Скачиваем файлы
-            await self.bot.download_file(product_file.file_path, product_path)
-            logger.info(f"Successfully downloaded product photo to {product_path}")
-            
-            await self.bot.download_file(background_file.file_path, background_path)
-            logger.info(f"Successfully downloaded background photo to {background_path}")
+            headers = {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            }
             
             try:
-                # Создаем задачу
-                task_id = await self.create_task(product_path, background_path)
-                if not task_id:
-                    raise RuntimeError("Failed to create task")
+                async with self.get_session().post(
+                    f"{self.api_url}/uc/openapi/accountStatus",
+                    json=data,
+                    headers=headers,
+                    timeout=30
+                ) as response:
+                    response_text = await response.text()
+                    logger.debug(f"Account status response: {response_text}")
                     
-                # Ждем результат
-                result_url = await self._wait_for_result(task_id)
-                if not result_url:
-                    raise RuntimeError("Failed to get task result")
+                    if response.status != 200:
+                        logger.error(f"Error response from account status API: Status {response.status}, Body: {response_text}")
+                        return None
+                        
+                    try:
+                        result = await response.json()
+                    except Exception as e:
+                        logger.error(f"Failed to parse account status JSON response: {response_text}, Error: {str(e)}")
+                        return None
                     
-                return result_url
+                    if result.get('code') != 0:
+                        error_msg = result.get('msg', 'Unknown error')
+                        logger.error(f"Account status API error: {error_msg}")
+                        return None
+                    
+                    task_count = int(result.get('data', {}).get('currentTaskCounts', '0'))
+                    logger.debug(f"Current task count: {task_count}")
+                    return task_count > 0
+                    
+            except asyncio.TimeoutError:
+                logger.error("Timeout while checking account status")
+                return None
+            except Exception as e:
+                logger.error(f"HTTP error while checking account status: {str(e)}")
+                return None
                 
-            finally:
-                # Удаляем временные файлы
-                try:
-                    if os.path.exists(product_path):
-                        os.remove(product_path)
-                    if os.path.exists(background_path):
-                        os.remove(background_path)
-                except Exception as e:
-                    logger.error(f"Error removing temp files: {e}")
-            
         except Exception as e:
-            logger.error(f"Error processing photos: {str(e)}")
-            raise
+            logger.error(f"Error checking account status: {str(e)}", exc_info=True)
+            return None
