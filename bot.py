@@ -29,23 +29,17 @@ async def on_startup(bot: Bot, dispatcher: Dispatcher):
     # Логируем длину токена для проверки
     logger.info(f"Bot token length: {len(bot.token)}")
     
-    # Инициализация TaskQueue
-    task_queue.setup(
-        bot=bot,
-        api_url=config.runninghub.api_url
-    )
-    
     # Инициализация RunningHub аккаунтов
     for account in config.runninghub.accounts:
         task_queue.add_account(
             api_key=account.api_key,
             workflow_id=account.workflows["product"],
-            max_concurrent_tasks=account.max_jobs
+            max_tasks=account.max_jobs
         )
     logger.info(f"Initialized {len(config.runninghub.accounts)} RunningHub accounts")
     
     # Инициализация API клиентов
-    await task_queue.initialize()
+    task_queue.initialize_clients()
     
     logger.info("==========================")
     logger.info("Starting bot")
@@ -58,7 +52,7 @@ async def on_shutdown(bot: Bot, dispatcher: Dispatcher):
     await task_queue.cancel_all_tasks()
     
     # Закрываем все API клиенты
-    await task_queue.close()
+    task_queue.close_clients()
     
     logger.info("==========================")
 
