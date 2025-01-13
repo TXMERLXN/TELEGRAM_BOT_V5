@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import os
+from pathlib import Path
 import aiohttp
 from typing import Optional, Dict, Any, Tuple
 
@@ -27,6 +29,10 @@ class RunningHubAPI:
         self.max_retries = max_retries
         self.polling_interval = polling_interval
         self.session = None
+        
+        # Создаем директорию для временных файлов
+        self.temp_dir = Path("temp")
+        self.temp_dir.mkdir(exist_ok=True)
         
     async def initialize(self):
         """Инициализация сессии"""
@@ -56,16 +62,16 @@ class RunningHubAPI:
         Returns:
             str: Путь к сгенерированному изображению или None в случае ошибки
         """
+        product_path = self.temp_dir / f"product_{user_id}.jpg"
+        background_path = self.temp_dir / f"background_{user_id}.jpg"
+        
         try:
             # Скачиваем фотографии
-            product_path = f"temp/product_{user_id}.jpg"
-            background_path = f"temp/background_{user_id}.jpg"
-            
-            await self._download_photo(product_photo_id, product_path)
-            await self._download_photo(background_photo_id, background_path)
+            await self._download_photo(product_photo_id, str(product_path))
+            await self._download_photo(background_photo_id, str(background_path))
             
             # Создаем задачу
-            task_id = await self.create_task(product_path, background_path)
+            task_id = await self.create_task(str(product_path), str(background_path))
             if not task_id:
                 raise Exception("Failed to create task")
             
@@ -79,6 +85,15 @@ class RunningHubAPI:
         except Exception as e:
             logger.error(f"Error processing photos: {str(e)}")
             return None
+        finally:
+            # Удаляем временные файлы
+            try:
+                if product_path.exists():
+                    product_path.unlink()
+                if background_path.exists():
+                    background_path.unlink()
+            except Exception as e:
+                logger.error(f"Error cleaning up temp files: {str(e)}")
             
     async def _download_photo(self, file_id: str, save_path: str) -> None:
         """Скачивание фото из Telegram"""
