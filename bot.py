@@ -32,7 +32,7 @@ async def on_startup(bot: Bot, dispatcher: Dispatcher):
     accounts_data = config.runninghub.accounts
     for account in accounts_data:
         api = RunningHubAPI(
-            api_url=os.getenv('RUNNINGHUB_API_URL'),
+            api_url=os.getenv('RUNNINGHUB_API_URL', 'https://api.runninghub.com'),
             api_key=account.api_key,
             workflow_id=account.workflows["product"]
         )
