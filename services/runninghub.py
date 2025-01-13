@@ -9,6 +9,7 @@ from aiogram.types import FSInputFile
 import time
 import random
 import ssl
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -25,48 +26,42 @@ class RunningHubAPI:
         self._session = None
         self._lock = asyncio.Lock()
         self.logger = logging.getLogger(__name__)
-
-    def initialize_client(self) -> None:
-        """Инициализация aiohttp сессии"""
-        if self._session is None:
-            ssl_context = ssl.create_default_context()
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_NONE
-            connector = aiohttp.TCPConnector(ssl=ssl_context)
-            self._session = aiohttp.ClientSession(connector=connector)
-            self.logger.info("Created new aiohttp session")
-
+        
+    def _create_ssl_context(self) -> ssl.SSLContext:
+        """Создание SSL контекста с отключенной проверкой сертификата"""
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        return ssl_context
+        
+    def _create_connector(self) -> aiohttp.TCPConnector:
+        """Создание TCP коннектора с настроенным SSL"""
+        return aiohttp.TCPConnector(
+            ssl=self._create_ssl_context(),
+            force_close=True,
+            enable_cleanup_closed=True,
+            verify_ssl=False
+        )
+        
     async def _get_session(self) -> aiohttp.ClientSession:
         """Создание или получение существующей сессии"""
         if not hasattr(self, '_session') or self._session is None or self._session.closed:
-            # Настройка SSL контекста
-            ssl_context = ssl.create_default_context()
-            ssl_context.check_hostname = False
-            ssl_context.verify_mode = ssl.CERT_NONE
-            
-            connector = aiohttp.TCPConnector(ssl=ssl_context)
-            self._session = aiohttp.ClientSession(connector=connector)
+            timeout = aiohttp.ClientTimeout(total=30)
+            self._session = aiohttp.ClientSession(
+                connector=self._create_connector(),
+                timeout=timeout,
+                headers={
+                    'Accept': 'application/json',
+                    'User-Agent': 'RunningHub-Client/1.0'
+                }
+            )
             self.logger.info("Created new aiohttp session")
         return self._session
 
     async def close_client(self) -> None:
         """Закрытие aiohttp сессии"""
-        if self._session is not None:
-            if not self._session.closed:
-                try:
-                    if self._session._connector is not None and not self._session._connector.closed:
-                        self._session._connector.close()
-                    if self._session._connector_owner:
-                        self._session._connector = None
-                except Exception as e:
-                    self.logger.error(f"Error closing session connector: {e}")
-                
-                try:
-                    self._session.close()
-                except Exception as e:
-                    self.logger.error(f"Error closing session: {e}")
-            
-            self._session = None
+        if self._session and not self._session.closed:
+            await self._session.close()
             self.logger.info("Closed aiohttp session")
 
     async def _upload_image(self, image_path: str, file_type: str = "image") -> Optional[str]:
