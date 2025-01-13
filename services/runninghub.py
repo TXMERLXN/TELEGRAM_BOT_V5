@@ -5,7 +5,6 @@ from typing import Optional, Dict, Union, Tuple, List
 from PIL import Image
 import io
 from config import load_config
-from .task_queue import task_queue
 from .account_manager import account_manager, RunningHubAccount
 import os
 import aiohttp
@@ -14,54 +13,6 @@ import time
 from tempfile import NamedTemporaryFile
 
 logger = logging.getLogger(__name__)
-
-class RunningHubAccount:
-    """Класс для хранения данных аккаунта RunningHub"""
-    def __init__(self, api_key: str, workflow_ids: List[str], max_jobs: int):
-        self.api_key = api_key
-        self.workflow_ids = workflow_ids
-        self.max_jobs = max_jobs
-        self.current_jobs = 0
-
-    @property
-    def workflow_id(self) -> Optional[str]:
-        """Возвращает ID основного workflow для генерации"""
-        return self.workflow_ids[0] if self.workflow_ids else None
-
-    def is_available(self) -> bool:
-        """Проверяет доступность аккаунта"""
-        return self.current_jobs < self.max_jobs
-
-    def increment_jobs(self):
-        """Увеличивает счетчик текущих задач"""
-        self.current_jobs += 1
-
-    def decrement_jobs(self):
-        """Уменьшает счетчик текущих задач"""
-        self.current_jobs = max(0, self.current_jobs - 1)
-
-class AccountManager:
-    """Менеджер аккаунтов RunningHub"""
-    def __init__(self):
-        self.accounts: List[RunningHubAccount] = []
-
-    def add_account(self, api_key: str, workflow_ids: List[str], max_jobs: int):
-        """Добавляет новый аккаунт"""
-        account = RunningHubAccount(api_key, workflow_ids, max_jobs)
-        self.accounts.append(account)
-        logger.info(f"Added new RunningHub account with workflows: {workflow_ids}")
-
-    async def get_available_account(self, task_type: str) -> Optional[RunningHubAccount]:
-        """Получает доступный аккаунт"""
-        for account in self.accounts:
-            if account.is_available():
-                account.increment_jobs()
-                return account
-        return None
-
-    async def release_account(self, account: RunningHubAccount):
-        """Освобождает аккаунт"""
-        account.decrement_jobs()
 
 config = load_config()
 logger.setLevel(logging.DEBUG)
@@ -346,10 +297,10 @@ class RunningHubAPI:
         url = f"{self.api_url}/task/openapi/submit/workflow"
         
         try:
-            # Получаем workflow ID
-            workflow_id = account.workflow_id
+            # Получаем workflow ID из словаря workflows
+            workflow_id = account.workflows.get('product')
             if not workflow_id:
-                logger.error("No workflow ID available")
+                logger.error("No workflow ID available for product generation")
                 return None
 
             # Создаем payload для задачи
@@ -470,7 +421,7 @@ class RunningHubAPI:
                 return None
 
             # Получаем workflow_id для этого аккаунта
-            workflow_id = account.workflow_id
+            workflow_id = account.workflows.get('product')
             if not workflow_id:
                 logger.error("No workflow_id found for product generation")
                 await account_manager.release_account(account)
