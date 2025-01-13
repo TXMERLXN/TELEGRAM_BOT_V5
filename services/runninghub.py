@@ -225,6 +225,9 @@ class RunningHubAPI:
         """Ожидание результата задачи"""
         logger.info(f"Waiting for task {task_id} result")
         
+        # Минимальное время ожидания перед первой проверкой (10 секунд)
+        await asyncio.sleep(10)
+        
         for attempt in range(max_attempts):
             try:
                 # Сначала проверяем статус задачи
@@ -281,9 +284,18 @@ class RunningHubAPI:
                                 
                             output_data = output_result.get('data', [])
                             if output_data and isinstance(output_data, list) and len(output_data) > 0:
-                                file_url = output_data[0].get('fileUrl')
+                                output = output_data[0]
+                                file_url = output.get('fileUrl')
+                                task_cost_time = output.get('taskCostTime', '0')
+                                
+                                # Проверяем, что результат принадлежит текущей задаче
+                                if task_cost_time == '0':
+                                    logger.warning("Got cached result, waiting for actual task completion")
+                                    await asyncio.sleep(delay)
+                                    continue
+                                    
                                 if file_url:
-                                    logger.info(f"Task completed successfully, result URL: {file_url}")
+                                    logger.info(f"Task completed successfully in {task_cost_time}s, result URL: {file_url}")
                                     return file_url
                     
                     elif task_status == 'FAILED':
