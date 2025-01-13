@@ -193,6 +193,8 @@ class RunningHubAPI:
             }
             
             max_attempts = 60  # Максимальное количество попыток (5 минут при задержке в 5 секунд)
+            last_url = None  # Для отслеживания изменений URL
+            
             for attempt in range(max_attempts):
                 try:
                     # Проверяем статус аккаунта
@@ -210,6 +212,7 @@ class RunningHubAPI:
                         timeout=30
                     ) as response:
                         response_text = await response.text()
+                        logger.debug(f"Get result response [{attempt+1}/{max_attempts}]: {response_text}")
                         
                         if response.status != 200:
                             logger.error(f"Error response from API: Status {response.status}, Body: {response_text}")
@@ -243,6 +246,19 @@ class RunningHubAPI:
                             await asyncio.sleep(5)
                             continue
                             
+                        # Проверяем, изменился ли URL
+                        if file_url == last_url:
+                            logger.debug(f"URL hasn't changed, waiting for new result... [{attempt+1}/{max_attempts}]")
+                            await asyncio.sleep(5)
+                            continue
+                            
+                        # Проверяем, что URL содержит ID задачи
+                        if task_id not in file_url:
+                            logger.debug(f"URL doesn't match task ID, waiting... [{attempt+1}/{max_attempts}]")
+                            await asyncio.sleep(5)
+                            continue
+                            
+                        last_url = file_url
                         logger.info(f"Task completed successfully: {file_url}")
                         return file_url
                         
