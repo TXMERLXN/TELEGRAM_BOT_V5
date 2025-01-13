@@ -45,7 +45,7 @@ async def main():
         
         # Инициализация RunningHub аккаунтов
         for account in config.runninghub.accounts:
-            await account_manager.add_account(
+            account_manager.add_account(
                 api_key=account.api_key,
                 workflows=account.workflows,
                 max_jobs=account.max_jobs
