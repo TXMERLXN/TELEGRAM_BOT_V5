@@ -65,37 +65,37 @@ class RunningHubAPI:
             await self._session.close()
             self.logger.info("Closed aiohttp session")
 
-    async def _upload_image(self, image_path: str, file_type: str = "image") -> Optional[str]:
+    async def upload_image(self, file_path: str) -> str:
         """Загрузка изображения на сервер"""
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"File not found: {file_path}")
+
+        self.logger.info(f"Uploading product image...")
+        url = f"{self.api_url}/task/openapi/upload"
+        self.logger.info(f"Making request to {url}")
+
+        data = aiohttp.FormData()
+        data.add_field('apiKey', self.api_key)
+        data.add_field('fileType', 'image')
+        data.add_field('file', 
+                      open(file_path, 'rb'),
+                      filename=os.path.basename(file_path),
+                      content_type='image/jpeg')
+
         try:
-            url = f"{self.api_url}/task/openapi/upload"
-            self.logger.info(f"Making request to {url}")
-            
-            # Подготовка файла и данных
-            with open(image_path, 'rb') as f:
-                file_data = f.read()
-            
-            form = aiohttp.FormData()
-            form.add_field('file', file_data, filename=os.path.basename(image_path))
-            form.add_field('type', file_type)
-            form.add_field('apiKey', self.api_key)
-            
-            headers = {
-                'Accept': 'application/json'
-            }
-            
-            session = await self._get_session()
-            async with session.post(url, data=form, headers=headers) as response:
-                if response.status == 200:
-                    data = await response.json()
-                    return data.get('data', {}).get('id')
-                else:
+            async with (await self._get_session()).post(url, data=data) as response:
+                if response.status != 200:
                     error_text = await response.text()
-                    self.logger.error(f"Error response: {error_text}")
-                    return None
+                    raise Exception(f"Upload failed with status {response.status}: {error_text}")
+                
+                result = await response.json()
+                if result.get('code') != 0:
+                    raise Exception(f"Upload failed: {result.get('msg')}")
+                
+                return result['data']['fileName']
         except Exception as e:
             self.logger.error(f"Error uploading image: {e}")
-            return None
+            raise
 
     async def process_photos(self, user_id: int, product_photo: str, background_photo: str) -> Optional[str]:
         """Обработка фотографий"""
@@ -136,13 +136,13 @@ class RunningHubAPI:
             
             # Загружаем фотографии в RunningHub
             self.logger.info("Uploading product image...")
-            product_url = await self._upload_image(product_path)
+            product_url = await self.upload_image(product_path)
             if not product_url:
                 return None
             self.logger.info(f"Successfully uploaded product image: {product_url}")
             
             self.logger.info("Uploading background image...")
-            background_url = await self._upload_image(background_path)
+            background_url = await self.upload_image(background_path)
             if not background_url:
                 return None
             self.logger.info(f"Successfully uploaded background image: {background_url}")
