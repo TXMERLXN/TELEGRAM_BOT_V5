@@ -74,15 +74,19 @@ class RunningHubAPI:
             # Загружаем фотографии в RunningHub
             logger.info("Uploading product image...")
             try:
-                product_upload_data = {
-                    'apikey': self.api_key,
-                    'type': 'product'
-                }
-                product_files = {'file': open(product_path, 'rb')}
+                form = aiohttp.FormData()
+                form.add_field('apikey', self.api_key)
+                form.add_field('type', 'product')
+                form.add_field(
+                    'file',
+                    open(product_path, 'rb'),
+                    filename=os.path.basename(product_path),
+                    content_type='image/jpeg'
+                )
+                
                 async with self.get_session().post(
                     f"{self.api_url}/uc/openapi/upload",
-                    data=product_upload_data,
-                    data_files=product_files,
+                    data=form,
                     timeout=30
                 ) as response:
                     response_text = await response.text()
@@ -102,20 +106,26 @@ class RunningHubAPI:
                 logger.error(f"Error uploading product image: {str(e)}")
                 return None
             finally:
-                if 'product_files' in locals():
-                    product_files['file'].close()
+                if 'form' in locals() and hasattr(form, '_fields'):
+                    for field in form._fields:
+                        if hasattr(field[2], 'close'):
+                            field[2].close()
                     
             logger.info("Uploading background image...")
             try:
-                background_upload_data = {
-                    'apikey': self.api_key,
-                    'type': 'background'
-                }
-                background_files = {'file': open(background_path, 'rb')}
+                form = aiohttp.FormData()
+                form.add_field('apikey', self.api_key)
+                form.add_field('type', 'background')
+                form.add_field(
+                    'file',
+                    open(background_path, 'rb'),
+                    filename=os.path.basename(background_path),
+                    content_type='image/jpeg'
+                )
+                
                 async with self.get_session().post(
                     f"{self.api_url}/uc/openapi/upload",
-                    data=background_upload_data,
-                    data_files=background_files,
+                    data=form,
                     timeout=30
                 ) as response:
                     response_text = await response.text()
@@ -135,8 +145,10 @@ class RunningHubAPI:
                 logger.error(f"Error uploading background image: {str(e)}")
                 return None
             finally:
-                if 'background_files' in locals():
-                    background_files['file'].close()
+                if 'form' in locals() and hasattr(form, '_fields'):
+                    for field in form._fields:
+                        if hasattr(field[2], 'close'):
+                            field[2].close()
                     
             # Создаем задачу
             logger.info(f"Creating task with workflow {self.workflow_id}")
