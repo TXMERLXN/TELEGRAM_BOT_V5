@@ -36,7 +36,6 @@ async def setup_api():
         workflow_id=os.getenv('RUNNINGHUB_WORKFLOW_PRODUCT'),
         max_tasks=1
     )
-    task_queue.initialize_clients()
 
 logger = logging.getLogger(__name__)
 
