@@ -100,15 +100,14 @@ class TaskQueue:
         tried_accounts = set()
         logger.info(f"Starting photo processing. Total accounts available: {len(self.accounts)}")
         
-        while len(tried_accounts) < len(self.accounts):
-            account = self.get_available_account()
-            if not account or not account.api:
-                logger.warning("No available accounts for processing")
-                return None
+        # Создаем список всех аккаунтов в порядке возрастания текущих задач
+        available_accounts = sorted(self.accounts, key=lambda x: x.current_tasks)
+        
+        for account in available_accounts:
+            if not account.api:
+                continue
                 
             if account.api_key in tried_accounts:
-                logger.debug(f"Account {account.api_key[:8]}... already tried, waiting for other accounts")
-                await asyncio.sleep(1)
                 continue
                 
             tried_accounts.add(account.api_key)
@@ -128,14 +127,14 @@ class TaskQueue:
                     logger.info(f"Successfully processed photos with account {account.api_key[:8]}...")
                     return result
                     
-                logger.warning(f"Failed to process with account {account.api_key[:8]}..., will try next account")
+                logger.warning(f"Failed to process with account {account.api_key[:8]}..., trying next account")
                 
             except Exception as e:
                 logger.error(f"Error with account {account.api_key[:8]}...: {str(e)}")
             finally:
                 account.decrement_tasks()
                 logger.info(f"Finished processing with account {account.api_key[:8]}... (tasks: {account.current_tasks})")
-                
+        
         logger.error(f"All {len(self.accounts)} accounts failed to process photos")
         return None
             
