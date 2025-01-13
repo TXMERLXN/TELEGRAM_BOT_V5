@@ -297,8 +297,8 @@ class RunningHubAPI:
         url = f"{self.api_url}/task/openapi/submit/workflow"
         
         try:
-            # Получаем workflow ID из словаря workflows
-            workflow_id = account.workflows.get('product')
+            # Получаем workflow ID для продукта
+            workflow_id = account.get_workflow_id('product')
             if not workflow_id:
                 logger.error("No workflow ID available for product generation")
                 return None
@@ -421,7 +421,7 @@ class RunningHubAPI:
                 return None
 
             # Получаем workflow_id для этого аккаунта
-            workflow_id = account.workflows.get('product')
+            workflow_id = account.get_workflow_id('product')
             if not workflow_id:
                 logger.error("No workflow_id found for product generation")
                 await account_manager.release_account(account)

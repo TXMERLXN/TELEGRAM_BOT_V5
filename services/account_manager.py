@@ -14,6 +14,10 @@ class RunningHubAccount:
     active_jobs: int = 0
     last_used: datetime = None
 
+    def get_workflow_id(self, workflow_type: str) -> Optional[str]:
+        """Получает ID workflow по типу"""
+        return self.workflows.get(workflow_type)
+
 class AccountManager:
     def __init__(self):
         self.accounts = []
@@ -40,6 +44,7 @@ class AccountManager:
                 return None
 
             min_jobs_account.active_jobs += 1
+            min_jobs_account.last_used = datetime.now()
             logger.debug(f"Using account with {min_jobs_account.active_jobs} active jobs")
             return min_jobs_account
 
@@ -49,9 +54,8 @@ class AccountManager:
             return
 
         async with self.lock:
-            if account.active_jobs > 0:
-                account.active_jobs -= 1
-                logger.debug(f"Released account. Now has {account.active_jobs} active jobs")
+            account.active_jobs = max(0, account.active_jobs - 1)
+            logger.debug(f"Released account, now has {account.active_jobs} active jobs")
 
     async def release_all_accounts(self) -> None:
         """Освобождает все аккаунты"""
