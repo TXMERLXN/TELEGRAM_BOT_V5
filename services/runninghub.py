@@ -44,9 +44,13 @@ class RunningHubAPI:
 
     async def close(self):
         """Закрытие сессии"""
-        if self.session:
-            await self.session.close()
-            self.session = None
+        try:
+            if self.session and not self.session.closed:
+                await self.session.close()
+                self.session = None
+                logger.info("RunningHub session closed")
+        except Exception as e:
+            logger.error(f"Error closing RunningHub session: {str(e)}")
 
     def _resize_image(self, image_data: bytes) -> bytes:
         """Уменьшает размер изображения, сохраняя пропорции"""

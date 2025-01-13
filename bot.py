@@ -74,11 +74,17 @@ async def main():
 
 # Обработчик SIGTERM
 async def handle_sigterm(signum, frame):
+    """Обработчик сигнала SIGTERM"""
     logger.info("Received SIGTERM signal")
     # Отменяем все активные задачи
     await task_queue.cancel_all_tasks()
-    # Закрываем соединения
-    await bot.session.close()
+    # Освобождаем все аккаунты
+    await account_manager.release_all_accounts()
+    # Закрываем сессии
+    if generation.runninghub:
+        await generation.runninghub.close()
+    if 'bot' in globals():
+        await bot.session.close()
     # Останавливаем поллинг
     await dp.stop_polling()
     logger.info("Shutting down bot")
