@@ -258,10 +258,16 @@ class RunningHubAPI:
                     # Проверяем, есть ли результат
                     output_data = result.get('data', [])
                     if output_data and isinstance(output_data, list) and len(output_data) > 0:
-                        file_url = output_data[0].get('fileUrl')
-                        if file_url:
-                            logger.info(f"Task completed successfully, result URL: {file_url}")
+                        output = output_data[0]
+                        file_url = output.get('fileUrl')
+                        task_cost_time = output.get('taskCostTime', '0')
+                        
+                        # Проверяем, что задача действительно выполнилась
+                        if file_url and task_cost_time != '0':
+                            logger.info(f"Task completed successfully in {task_cost_time}s, result URL: {file_url}")
                             return file_url
+                        else:
+                            logger.info(f"Task {task_id} is still processing (cost time: {task_cost_time}), waiting...")
                             
                     logger.info(f"Task {task_id} still processing, attempt {attempt + 1}/{max_attempts}")
                     await asyncio.sleep(delay)
