@@ -30,13 +30,13 @@ async def on_startup(bot: Bot, dispatcher: Dispatcher):
     
     # Инициализация RunningHub аккаунтов
     accounts_data = config.runninghub.accounts
-    for account_data in accounts_data:
+    for account in accounts_data:
         api = RunningHubAPI(
             api_url=os.getenv('RUNNINGHUB_API_URL'),
-            api_key=account_data['api_key'],
-            workflow_id=account_data['workflow_id']
+            api_key=account.api_key,
+            workflow_id=account.workflows["product"]
         )
-        task_queue.add_account(api, account_data.get('max_tasks', 5))
+        task_queue.add_account(api, account.max_jobs)
     logger.info(f"Initialized {len(accounts_data)} RunningHub accounts")
     
     # Инициализация API клиентов
