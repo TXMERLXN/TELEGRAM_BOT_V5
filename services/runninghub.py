@@ -104,10 +104,14 @@ class RunningHubAPI:
         
         for attempt in range(self.max_retries):
             try:
+                # Добавляем timestamp к имени файла для уникальности
+                unique_filename = f"{int(time.time())}_{filename}"
+                logger.debug(f"Uploading file as: {unique_filename}")
+                
                 # Создаем форму для загрузки
                 form = aiohttp.FormData()
                 form.add_field('apiKey', account.api_key)
-                form.add_field('file', image_data, filename=filename, content_type='image/png')
+                form.add_field('file', image_data, filename=unique_filename, content_type='image/png')
                 
                 # Отправляем запрос
                 status, response_text = await self._make_request('post', url, data=form)
@@ -182,6 +186,9 @@ class RunningHubAPI:
                 logger.info(f"Getting task result for task {task_id} (attempt {attempt + 1}/{max_attempts})")
                 
                 try:
+                    # Добавляем timestamp к имени файла для уникальности
+                    unique_filename = f"{int(time.time())}_{filename}"
+                    
                     payload = {
                         "taskId": task_id,
                         "apiKey": account.api_key
