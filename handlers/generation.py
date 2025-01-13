@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import Optional
+from typing import Optional, Union
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 
 @router.message(Command("generate"))
 @router.callback_query(F.data == "generate")
-async def start_generation(event: Message | CallbackQuery, state: FSMContext):
+async def start_generation(event: Union[Message, CallbackQuery], state: FSMContext):
     """Начало процесса генерации"""
     logger.info(f"User {event.from_user.id} started generation")
     
