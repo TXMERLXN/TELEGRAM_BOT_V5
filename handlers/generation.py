@@ -28,14 +28,14 @@ router = Router()
 
 # Инициализация API и очереди задач
 @router.startup()
-async def setup_api():
-    """Инициализация API и очереди задач"""
-    # Инициализируем очередь задач
-    task_queue.add_account(
+async def setup_api() -> None:
+    """Настройка API клиента"""
+    api = RunningHubAPI(
+        api_url=os.getenv('RUNNINGHUB_API_URL'),
         api_key=os.getenv('RUNNINGHUB_API_KEY'),
-        workflow_id=os.getenv('RUNNINGHUB_WORKFLOW_PRODUCT'),
-        max_tasks=1
+        workflow_id=os.getenv('RUNNINGHUB_WORKFLOW_ID')
     )
+    task_queue.add_account(api, max_tasks=1)
 
 logger = logging.getLogger(__name__)
 

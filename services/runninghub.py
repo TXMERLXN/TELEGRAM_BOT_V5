@@ -37,10 +37,9 @@ class RunningHubAPI:
     def _create_connector(self) -> aiohttp.TCPConnector:
         """Создание TCP коннектора с настроенным SSL"""
         return aiohttp.TCPConnector(
-            ssl=self._create_ssl_context(),
+            verify_ssl=False,
             force_close=True,
-            enable_cleanup_closed=True,
-            verify_ssl=False
+            enable_cleanup_closed=True
         )
         
     async def _get_session(self) -> aiohttp.ClientSession:
