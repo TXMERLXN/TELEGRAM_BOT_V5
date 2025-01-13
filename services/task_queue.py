@@ -9,17 +9,17 @@ logger = logging.getLogger(__name__)
 
 class RunningHubAccount:
     """Класс для хранения информации об аккаунте RunningHub"""
-    def __init__(self, api_key: str, workflow_id: str, max_concurrent_tasks: int = 1):
+    def __init__(self, api_key: str, workflow_id: str, max_tasks: int = 1):
         self.api_key = api_key
         self.workflow_id = workflow_id
-        self.max_concurrent_tasks = max_concurrent_tasks
+        self.max_tasks = max_tasks
         self.current_tasks = 0
         self.api: Optional[RunningHubAPI] = None
         
     @property
     def is_available(self) -> bool:
         """Проверяет, доступен ли аккаунт для новых задач"""
-        return self.current_tasks < self.max_concurrent_tasks
+        return self.current_tasks < self.max_tasks
         
     def increment_tasks(self):
         """Увеличивает счетчик текущих задач"""
@@ -60,7 +60,7 @@ class TaskQueue:
             # Поиск свободного аккаунта
             available_account = None
             for account in self.accounts:
-                if account.current_tasks < account.max_concurrent_tasks:
+                if account.current_tasks < account.max_tasks:
                     if len(self.active_tasks) == 0:  # Если нет активных задач, используем первый свободный аккаунт
                         available_account = account
                         break
@@ -103,7 +103,7 @@ class TaskQueue:
                 self.active_tasks.pop(user_id, None)
                 
                 # Проверяем очередь после завершения задачи
-                if self.task_queue and available_account.current_tasks < available_account.max_concurrent_tasks:
+                if self.task_queue and available_account.current_tasks < available_account.max_tasks:
                     next_task = self.task_queue.pop(0)
                     next_user_id, next_product, next_background = next_task
                     self.logger.info(f"Processing next task from queue for user {next_user_id}")
@@ -116,7 +116,7 @@ class TaskQueue:
                 api_url=self.api_url,
                 api_key=account.api_key,
                 workflow_id=account.workflow_id,
-                max_tasks=account.max_concurrent_tasks
+                max_tasks=account.max_tasks
             )
             account.api.initialize_client()
         self.logger.info(f"Initialized {len(self.accounts)} API clients")
