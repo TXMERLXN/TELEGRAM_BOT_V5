@@ -255,11 +255,11 @@ class RunningHubAPI:
                         await asyncio.sleep(delay)
                         continue
                     
-                    task_status = result.get('data', {}).get('taskStatus')
+                    task_status = result.get('data')
                     logger.info(f"Current task status: {task_status}")
                     
-                    # Если задача завершена, получаем результат
-                    if task_status == 'COMPLETED':
+                    # Если задача завершена успешно
+                    if task_status == 'SUCCESS':
                         async with self.get_session().post(
                             f"{self.api_url}/task/openapi/outputs",
                             json=status_data,
@@ -287,8 +287,12 @@ class RunningHubAPI:
                                     return file_url
                     
                     elif task_status == 'FAILED':
-                        logger.error(f"Task failed: {result.get('data', {}).get('promptTips')}")
+                        logger.error(f"Task failed")
                         return None
+                    elif task_status == 'RUNNING':
+                        logger.info(f"Task {task_id} is still running")
+                    else:
+                        logger.warning(f"Unknown task status: {task_status}")
                     
                     logger.info(f"Task {task_id} still processing (status: {task_status}), attempt {attempt + 1}/{max_attempts}")
                     await asyncio.sleep(delay)
