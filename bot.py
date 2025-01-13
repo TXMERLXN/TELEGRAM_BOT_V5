@@ -44,7 +44,7 @@ async def main():
         dp.include_router(generation.router)
         
         # Инициализация RunningHub API
-        generation.init_runninghub(bot)
+        await generation.init_runninghub(bot)
         
         # Инициализация RunningHub аккаунтов
         for account in config.runninghub.accounts:
@@ -72,22 +72,21 @@ async def main():
         if 'bot' in locals():
             await bot.session.close()
 
-# Обработчик SIGTERM
 async def handle_sigterm(signum, frame):
     """Обработчик сигнала SIGTERM"""
     logger.info("Received SIGTERM signal")
-    # Отменяем все активные задачи
-    await task_queue.cancel_all_tasks()
-    # Освобождаем все аккаунты
-    await account_manager.release_all_accounts()
-    # Закрываем сессии
-    if generation.runninghub:
-        await generation.runninghub.close()
-    if 'bot' in globals():
-        await bot.session.close()
-    # Останавливаем поллинг
-    await dp.stop_polling()
-    logger.info("Shutting down bot")
+    try:
+        # Отменяем все активные задачи
+        await task_queue.cancel_all_tasks()
+        # Освобождаем все аккаунты
+        await account_manager.release_all_accounts()
+        # Закрываем сессии
+        if generation.runninghub:
+            await generation.runninghub.close()
+    except Exception as e:
+        logger.error(f"Error during shutdown: {str(e)}")
+    finally:
+        sys.exit(0)
 
 # Регистрируем обработчик SIGTERM
 loop = asyncio.get_event_loop()
