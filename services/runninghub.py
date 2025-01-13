@@ -131,17 +131,14 @@ class RunningHubAPI:
         try:
             # Создаем form-data с файлами
             data = aiohttp.FormData()
-            data.add_field('product',
+            data.add_field('product_image',
                           open(product_path, 'rb'),
                           filename='product.jpg',
                           content_type='image/jpeg')
-            data.add_field('background',
+            data.add_field('background_image',
                           open(background_path, 'rb'),
                           filename='background.jpg',
                           content_type='image/jpeg')
-            
-            # Добавляем workflow ID
-            data.add_field('workflow_id', os.getenv('RUNNINGHUB_WORKFLOW_PRODUCT', ''))
             
             logger.debug(f"Sending POST request to {self.api_url}/tasks")
             headers = {
@@ -160,9 +157,9 @@ class RunningHubAPI:
                 
                 if response.status == 200:
                     result = await response.json()
-                    task_id = result.get('id')  # API возвращает ID задачи в поле 'id'
+                    task_id = result.get('task_id')
                     if not task_id:
-                        logger.error(f"No task id in response: {result}")
+                        logger.error(f"No task_id in response: {result}")
                         return None
                     return task_id
                 else:
@@ -206,9 +203,9 @@ class RunningHubAPI:
                     logger.debug(f"Task {task_id} status: {status}")
                     
                     if status == 'completed':
-                        result_url = result.get('output_url')  # API возвращает URL в поле 'output_url'
+                        result_url = result.get('result_url')
                         if not result_url:
-                            logger.error(f"No output_url in completed task response: {result}")
+                            logger.error(f"No result_url in completed task response: {result}")
                             return None
                         return result_url
                     elif status == 'failed':
