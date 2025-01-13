@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import aiohttp
 from typing import Optional, Dict, Any, Tuple
+from contextlib import asynccontextmanager
 
 from aiogram import Bot
 from aiogram.types import FSInputFile
@@ -39,6 +40,20 @@ class RunningHubAPI:
         self.temp_dir.mkdir(exist_ok=True)
         
         logger.info(f"Initialized RunningHubAPI with URL: {self.api_url}")
+        
+    @asynccontextmanager
+    async def get_session(self):
+        """Получение сессии с автоматическим закрытием"""
+        if not self.session:
+            self.session = aiohttp.ClientSession()
+            logger.info("Created new aiohttp session")
+        try:
+            yield self.session
+        finally:
+            if self.session:
+                await self.session.close()
+                self.session = None
+                logger.info("Closed aiohttp session")
         
     async def initialize(self):
         """Инициализация сессии"""
@@ -123,11 +138,25 @@ class RunningHubAPI:
     async def _download_photo(self, file_id: str, save_path: str) -> None:
         """Скачивание фото из Telegram"""
         try:
+            # Получаем информацию о файле
             file = await self.bot.get_file(file_id)
-            await self.bot.download_file(file.file_path, save_path)
-            logger.debug(f"Successfully downloaded file {file_id} to {save_path}")
+            if not file:
+                raise Exception(f"Could not get file info for {file_id}")
+                
+            # Скачиваем файл
+            async with self.get_session() as session:
+                async with session.get(file.file_url) as response:
+                    if response.status != 200:
+                        raise Exception(f"Could not download file: {response.status}")
+                        
+                    # Сохраняем файл
+                    with open(save_path, 'wb') as f:
+                        f.write(await response.read())
+                        
+            logger.info(f"Successfully downloaded photo to {save_path}")
+            
         except Exception as e:
-            logger.error(f"Error downloading file {file_id}: {str(e)}")
+            logger.error(f"Error downloading photo: {str(e)}")
             raise
         
     async def create_task(self, product_path: str, background_path: str) -> Optional[str]:
@@ -150,25 +179,26 @@ class RunningHubAPI:
                 'X-API-Key': self.api_key
             }
             
-            async with self.session.post(
-                f"{self.api_url}/tasks",
-                data=data,
-                headers=headers,
-                timeout=30
-            ) as response:
-                response_text = await response.text()
-                logger.debug(f"API response: {response.status} - {response_text}")
-                
-                if response.status == 200:
-                    result = await response.json()
-                    task_id = result.get('task_id')
-                    if not task_id:
-                        logger.error(f"No task_id in response: {result}")
+            async with self.get_session() as session:
+                async with session.post(
+                    f"{self.api_url}/tasks",
+                    data=data,
+                    headers=headers,
+                    timeout=30
+                ) as response:
+                    response_text = await response.text()
+                    logger.debug(f"API response: {response.status} - {response_text}")
+                    
+                    if response.status == 200:
+                        result = await response.json()
+                        task_id = result.get('task_id')
+                        if not task_id:
+                            logger.error(f"No task_id in response: {result}")
+                            return None
+                        return task_id
+                    else:
+                        logger.error(f"Error creating task: {response.status} - {response_text}")
                         return None
-                    return task_id
-                else:
-                    logger.error(f"Error creating task: {response.status} - {response_text}")
-                    return None
                     
         except Exception as e:
             logger.error(f"Error creating task: {str(e)}")
@@ -190,37 +220,38 @@ class RunningHubAPI:
                     'X-API-Key': self.api_key
                 }
                 
-                async with self.session.get(
-                    f"{self.api_url}/tasks/{task_id}",
-                    headers=headers,
-                    timeout=10
-                ) as response:
-                    response_text = await response.text()
-                    logger.debug(f"Status check response: {response.status} - {response_text}")
-                    
-                    if response.status != 200:
-                        logger.error(f"Error checking task status: {response.status} - {response_text}")
-                        return None
+                async with self.get_session() as session:
+                    async with session.get(
+                        f"{self.api_url}/tasks/{task_id}",
+                        headers=headers,
+                        timeout=10
+                    ) as response:
+                        response_text = await response.text()
+                        logger.debug(f"Status check response: {response.status} - {response_text}")
                         
-                    result = await response.json()
-                    status = result.get('status')
-                    logger.debug(f"Task {task_id} status: {status}")
-                    
-                    if status == 'completed':
-                        result_url = result.get('result_url')
-                        if not result_url:
-                            logger.error(f"No result_url in completed task response: {result}")
+                        if response.status != 200:
+                            logger.error(f"Error checking task status: {response.status} - {response_text}")
                             return None
-                        return result_url
-                    elif status == 'failed':
-                        error = result.get('error', 'Unknown error')
-                        logger.error(f"Task {task_id} failed: {error}")
-                        return None
+                            
+                        result = await response.json()
+                        status = result.get('status')
+                        logger.debug(f"Task {task_id} status: {status}")
                         
-                    # Ждем перед следующей проверкой
-                    logger.debug(f"Task {task_id} still processing, waiting {self.polling_interval} seconds")
-                    await asyncio.sleep(self.polling_interval)
-                    
+                        if status == 'completed':
+                            result_url = result.get('result_url')
+                            if not result_url:
+                                logger.error(f"No result_url in completed task response: {result}")
+                                return None
+                            return result_url
+                        elif status == 'failed':
+                            error = result.get('error', 'Unknown error')
+                            logger.error(f"Task {task_id} failed: {error}")
+                            return None
+                            
+                        # Ждем перед следующей проверкой
+                        logger.debug(f"Task {task_id} still processing, waiting {self.polling_interval} seconds")
+                        await asyncio.sleep(self.polling_interval)
+                        
             except Exception as e:
                 logger.error(f"Error checking task {task_id} status: {str(e)}")
                 return None
