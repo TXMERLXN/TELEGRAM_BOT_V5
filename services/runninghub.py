@@ -70,30 +70,14 @@ class RunningHubAPI:
             logger.error(f"Error resizing image: {str(e)}")
             return image_data
 
-    async def _make_request(self, method: str, url: str, return_bytes: bool = False, **kwargs) -> tuple:
-        """
-        Выполняет HTTP-запрос с повторными попытками
-        """
-        for attempt in range(self.max_retries):
-            try:
-                async with aiohttp.ClientSession(timeout=self.timeout) as session:
-                    async with getattr(session, method)(url, **kwargs) as response:
-                        if return_bytes:
-                            response_data = await response.read()
-                        else:
-                            response_data = await response.text()
-                        return response.status, response_data
-            except asyncio.TimeoutError:
-                logger.warning(f"Timeout on attempt {attempt + 1}/{self.max_retries}")
-                if attempt < self.max_retries - 1:
-                    await asyncio.sleep(self.retry_delay)
-                continue
-            except Exception as e:
-                logger.error(f"Request failed on attempt {attempt + 1}/{self.max_retries}: {str(e)}")
-                if attempt < self.max_retries - 1:
-                    await asyncio.sleep(self.retry_delay)
-                continue
-        raise Exception(f"Failed after {self.max_retries} attempts")
+    async def _make_request(self, method: str, url: str, **kwargs) -> tuple[int, Optional[str]]:
+        """Делает HTTP запрос с повторными попытками"""
+        try:
+            async with self.session.request(method, url, **kwargs) as response:
+                return response.status, await response.text()
+        except Exception as e:
+            logger.error(f"HTTP request error: {str(e)}")
+            return 500, None
 
     async def upload_image(self, image_data: bytes, filename: str, account: RunningHubAccount) -> Optional[str]:
         """Загружает изображение на RunningHub"""
@@ -154,9 +138,9 @@ class RunningHubAPI:
             return None
 
         url = f"https://api.telegram.org/file/bot{config.tg_bot.token}/{file_path}"
-        status, response = await self._make_request('get', url, return_bytes=True)
+        status, response = await self._make_request('get', url)
         if status == 200 and response:
-            return response
+            return response.encode()
         
         logger.error(f"Failed to download file from Telegram: {status}")
         return None
@@ -227,7 +211,7 @@ class RunningHubAPI:
                             logger.error(f"Failed to parse task result JSON response: {e}")
                             break
                     else:
-                        logger.error(f"Task result API error: {status} - {response_text}")
+                        logger.error(f"Task result API error: {status}")
                         break
                         
                 except Exception as e:
@@ -251,50 +235,82 @@ class RunningHubAPI:
         """Создает задачу в RunningHub"""
         url = f"{self.api_url}/task/openapi/create"
         
-        for attempt in range(1, self.max_retries + 1):
-            logger.info(f"Creating task with uploaded files (attempt {attempt}/{self.max_retries})")
-            
-            data = {
-                "apiKey": account.api_key,
-                "workflowId": workflow_id,
-                "variables": {
-                    "product_image": product_filename,
-                    "background_image": background_filename
-                }
-            }
+        for attempt in range(self.max_retries):
+            logger.info(f"Creating task with uploaded files (attempt {attempt + 1}/{self.max_retries})")
             
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(url, json=data) as response:
-                        response_text = await response.text()
-                        if response.status == 200:
-                            try:
-                                data = json.loads(response_text)
-                                if data.get("code") == 0:
-                                    return data["data"]["taskId"]
-                                else:
-                                    error_msg = data.get("msg", "Unknown error")
-                                    if error_msg == "TASK_QUEUE_MAXED":
-                                        # Если очередь заполнена, ждем дольше перед следующей попыткой
-                                        logger.warning("Task queue is maxed out, waiting before retry")
-                                        await asyncio.sleep(self.retry_delay * 2)
-                                    elif error_msg == "TASK_CREATE_TOO_FAST":
-                                        logger.warning("Task creation too fast, waiting before retry")
-                                        await asyncio.sleep(self.retry_delay)
-                                    else:
-                                        logger.error(f"Task creation API error: {error_msg}")
-                            except json.JSONDecodeError as e:
-                                logger.error(f"Failed to parse task creation response: {e}")
-                        else:
-                            logger.error(f"Task creation failed with status {response.status}")
-                            
-            except Exception as e:
-                logger.error(f"Error creating task: {str(e)}")
-            
-            if attempt < self.max_retries:
+                payload = {
+                    "apiKey": account.api_key,
+                    "workflowId": workflow_id,
+                    "inputs": {
+                        "product": product_filename,
+                        "background": background_filename
+                    }
+                }
+                
+                status, response_text = await self._make_request('post', url, json=payload)
+                
+                if status == 200 and response_text:
+                    try:
+                        data = json.loads(response_text)
+                        if data.get("code") == 0 and data.get("data"):
+                            task_id = data["data"]
+                            # Сохраняем аккаунт для этой задачи
+                            self.task_accounts[task_id] = account
+                            logger.info(f"Created task {task_id}")
+                            return task_id
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Failed to parse task creation response: {e}")
+                        continue
+                
+                logger.error(f"Task creation API error: {status} - {response_text}")
                 await asyncio.sleep(self.retry_delay)
                 
+            except Exception as e:
+                logger.error(f"Error creating task: {str(e)}")
+                await asyncio.sleep(self.retry_delay)
+        
         return None
+
+    async def get_generation_status(self, task_id: str) -> tuple[str, Optional[str]]:
+        """
+        Получает статус генерации и URL результата
+        Возвращает: (status, result_url)
+        """
+        url = f"{self.api_url}/task/openapi/outputs"
+        account = self.task_accounts.get(task_id)
+        if not account:
+            logger.error(f"No account found for task {task_id}")
+            return None
+
+        payload = {
+            "taskId": task_id,
+            "apiKey": account.api_key
+        }
+
+        status, response_text = await self._make_request('post', url, json=payload)
+        if status == 200 and response_text:
+            try:
+                data = json.loads(response_text)
+                if data.get("code") == 0 and data["data"]:
+                    # Задача завершена успешно
+                    result = data["data"][0]
+                    if result.get("fileUrl"):
+                        return "completed", result["fileUrl"]
+                    elif result.get("text"):
+                        return "completed", result["text"]
+                    else:
+                        logger.error("Task completed but no result found")
+                        return None
+                elif data.get("code") == 804:  # APIKEY_TASK_IS_RUNNING
+                    return "processing", None
+                elif data.get("code") == 805:  # APIKEY_TASK_QUEUE
+                    return "queued", None
+                else:
+                    return "failed", None
+            except json.JSONDecodeError:
+                return "failed", None
+        return "failed", None
 
     async def generate_product_photo(self, user_id: int, product_file_id: str, background_file_id: str) -> Optional[str]:
         """Генерирует фото продукта с новым фоном"""
@@ -355,43 +371,3 @@ class RunningHubAPI:
         except Exception as e:
             logger.error(f"Error generating product photo: {str(e)}")
             return None
-
-    async def get_generation_status(self, task_id: str) -> tuple[str, Optional[str]]:
-        """
-        Получает статус генерации и URL результата
-        Возвращает: (status, result_url)
-        """
-        url = f"{self.api_url}/task/openapi/outputs"
-        account = self.task_accounts.get(task_id)
-        if not account:
-            logger.error(f"No account found for task {task_id}")
-            return None
-
-        payload = {
-            "taskId": task_id,
-            "apiKey": account.api_key
-        }
-
-        status, response_text = await self._make_request('post', url, json=payload)
-        if status == 200 and response_text:
-            try:
-                data = json.loads(response_text)
-                if data.get("code") == 0 and data["data"]:
-                    # Задача завершена успешно
-                    result = data["data"][0]
-                    if result.get("fileUrl"):
-                        return "completed", result["fileUrl"]
-                    elif result.get("text"):
-                        return "completed", result["text"]
-                    else:
-                        logger.error("Task completed but no result found")
-                        return None
-                elif data.get("code") == 804:  # APIKEY_TASK_IS_RUNNING
-                    return "processing", None
-                elif data.get("code") == 805:  # APIKEY_TASK_QUEUE
-                    return "queued", None
-                else:
-                    return "failed", None
-            except json.JSONDecodeError:
-                return "failed", None
-        return "failed", None
