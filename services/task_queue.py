@@ -146,4 +146,4 @@ class TaskQueue:
         self.logger.info("All tasks cancelled and clients closed")
 
 # Глобальный экземпляр очереди задач
-task_queue = TaskQueue(api_url='https://api.runninghub.com')
+task_queue = TaskQueue(api_url='https://www.runninghub.ai')

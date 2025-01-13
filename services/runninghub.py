@@ -28,16 +28,17 @@ class RunningHubAPI:
         self.logger = logging.getLogger(__name__)
         
     def _create_ssl_context(self) -> ssl.SSLContext:
-        """Создание SSL контекста с отключенной проверкой сертификата"""
-        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
+        """Создание SSL контекста с учетом окружения"""
+        ssl_context = ssl.create_default_context()
+        if os.getenv('ENVIRONMENT') != 'production':
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
         return ssl_context
         
     def _create_connector(self) -> aiohttp.TCPConnector:
         """Создание TCP коннектора с настроенным SSL"""
         return aiohttp.TCPConnector(
-            verify_ssl=False,
+            ssl=self._create_ssl_context(),
             force_close=True,
             enable_cleanup_closed=True,
             ttl_dns_cache=300
@@ -50,18 +51,14 @@ class RunningHubAPI:
             self._session = aiohttp.ClientSession(
                 connector=self._create_connector(),
                 timeout=timeout,
-                headers={
-                    'Accept': 'application/json',
-                    'User-Agent': 'RunningHub-Client/1.0',
-                    'Connection': 'keep-alive'
-                }
+                raise_for_status=True
             )
             self.logger.info("Created new aiohttp session")
         return self._session
 
     async def close_client(self) -> None:
         """Закрытие aiohttp сессии"""
-        if self._session and not self._session.closed:
+        if hasattr(self, '_session') and self._session is not None and not self._session.closed:
             await self._session.close()
             self.logger.info("Closed aiohttp session")
 
