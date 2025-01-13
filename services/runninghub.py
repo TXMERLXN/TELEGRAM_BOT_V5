@@ -148,53 +148,12 @@ class RunningHubAPI:
             self.logger.info(f"Successfully uploaded background image: {background_url}")
             
             # Создаем задачу с загруженными изображениями
-            self.logger.info(f"Creating task with workflow {self.workflow_id}")
-            try:
-                task_data = {
-                    "workflowId": self.workflow_id,
-                    "apiKey": self.api_key,
-                    "nodeInfoList": [
-                        {
-                            "nodeId": "2",  # ID узла для продукта
-                            "fieldName": "image",
-                            "fieldValue": product_url
-                        },
-                        {
-                            "nodeId": "32",  # ID узла для фона
-                            "fieldName": "image",
-                            "fieldValue": background_url
-                        }
-                    ]
-                }
-                
-                async with self._get_session() as session:
-                    async with session.post(
-                        f"{self.api_url}/task/openapi/create",
-                        json=task_data,
-                        timeout=30
-                    ) as response:
-                        response_text = await response.text()
-                        self.logger.info(f"Task creation response: {response_text}")
-                        if response.status != 200:
-                            self.logger.error(f"Failed to create task: Status {response.status}")
-                            return None
-                        
-                        task_result = await response.json()
-                        if task_result.get('code') != 0:
-                            self.logger.error(f"Failed to create task: {task_result.get('msg')}")
-                            return None
-                        
-                        task_id = task_result['data'].get('taskId')
-                        if not task_id:
-                            self.logger.error("No taskId in response")
-                            return None
-                        
-                        self.logger.info(f"Successfully created task: {task_id}")
-                        return await self._wait_for_result(task_id)
-                    
-            except Exception as e:
-                self.logger.error(f"Error creating task: {str(e)}")
+            task_id = await self._create_task(product_url, background_url)
+            if not task_id:
                 return None
+            
+            # Ожидаем результат задачи
+            return await self._wait_for_result(task_id)
                 
         except Exception as e:
             self.logger.error(f"Error processing photos: {str(e)}", exc_info=True)
@@ -208,6 +167,45 @@ class RunningHubAPI:
                     os.remove(background_path)
             except Exception as e:
                 self.logger.error(f"Error cleaning up temporary files: {str(e)}")
+
+    async def _create_task(self, product_url: str, background_url: str) -> Optional[str]:
+        """Создание задачи в RunningHub"""
+        self.logger.info(f"Creating task with workflow {self.workflow_id}")
+        
+        url = f"{self.api_url}/task/openapi/create"
+        data = {
+            "workflowId": self.workflow_id,
+            "apiKey": self.api_key,
+            "nodeInfoList": [
+                {
+                    "nodeId": "20",  # ID узла для загрузки изображения продукта
+                    "fieldName": "image",
+                    "fieldValue": product_url
+                },
+                {
+                    "nodeId": "21",  # ID узла для загрузки фонового изображения
+                    "fieldName": "image",
+                    "fieldValue": background_url
+                }
+            ]
+        }
+        
+        try:
+            async with (await self._get_session()).post(url, json=data) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    raise Exception(f"Task creation failed with status {response.status}: {error_text}")
+                
+                result = await response.json()
+                if result.get('code') != 0:
+                    raise Exception(f"Task creation failed: {result.get('msg')}")
+                
+                task_id = result['data']['taskId']
+                self.logger.info(f"Successfully created task: {task_id}")
+                return task_id
+        except Exception as e:
+            self.logger.error(f"Error creating task: {e}")
+            return None
 
     async def _wait_for_result(self, task_id: str, max_attempts: int = 60, delay: int = 10) -> Optional[str]:
         """Ожидание результата задачи"""
