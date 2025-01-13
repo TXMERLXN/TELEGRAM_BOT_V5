@@ -21,6 +21,7 @@ class RunningHub:
     task_timeout: int = 600  # Таймаут задачи в секундах (10 минут)
     retry_delay: int = 5  # Задержка между попытками в секундах
     max_retries: int = 3  # Максимальное количество попыток для HTTP запросов
+    max_concurrent_tasks: int = 15  # Максимальное количество одновременных задач (5 задач * 3 аккаунта)
 
 @dataclass
 class Config:
