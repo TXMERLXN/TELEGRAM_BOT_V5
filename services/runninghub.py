@@ -178,12 +178,12 @@ class RunningHubAPI:
             "apiKey": self.api_key,
             "nodeInfoList": [
                 {
-                    "nodeId": "20",  # ID узла для загрузки изображения продукта
+                    "nodeId": "2",  # ID узла для загрузки изображения продукта
                     "fieldName": "image",
                     "fieldValue": product_url
                 },
                 {
-                    "nodeId": "21",  # ID узла для загрузки фонового изображения
+                    "nodeId": "32",  # ID узла для загрузки фонового изображения
                     "fieldName": "image",
                     "fieldValue": background_url
                 }
