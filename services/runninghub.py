@@ -194,12 +194,14 @@ class RunningHubAPI:
             except Exception as e:
                 logger.error(f"Error cleaning up temporary files: {str(e)}")
 
-    async def _wait_for_result(self, task_id: str, max_attempts: int = 60, delay: int = 5) -> Optional[str]:
+    async def _wait_for_result(self, task_id: str, max_attempts: int = 60, delay: int = 10) -> Optional[str]:
         """Ожидание результата задачи"""
         logger.info(f"Waiting for task {task_id} result")
         
-        # Минимальное время ожидания перед первой проверкой (15 секунд)
-        await asyncio.sleep(15)
+        # Минимальное время ожидания перед первой проверкой (20 секунд)
+        initial_wait = 20
+        logger.info(f"Initial wait for {initial_wait} seconds...")
+        await asyncio.sleep(initial_wait)
         
         # Сохраняем время начала задачи
         start_time = time.time()
@@ -208,6 +210,9 @@ class RunningHubAPI:
         
         for attempt in range(max_attempts):
             try:
+                elapsed_time = time.time() - start_time
+                logger.info(f"Checking task status (attempt {attempt + 1}/{max_attempts}, elapsed time: {elapsed_time:.1f}s)")
+                
                 # Сначала проверяем статус задачи
                 status_data = {
                     "taskId": task_id,
@@ -311,7 +316,7 @@ class RunningHubAPI:
                 logger.error(f"Error checking task status: {str(e)}")
                 await asyncio.sleep(delay)
                 
-        logger.error(f"Timeout waiting for task result after {max_attempts} attempts")
+        logger.error(f"Timeout waiting for task result after {max_attempts} attempts (total time: {time.time() - start_time:.1f}s)")
         return None
 
     async def _check_account_status(self) -> Optional[bool]:
