@@ -205,22 +205,27 @@ class RunningHubAPI:
                     if status == 200 and response_text:
                         try:
                             data = json.loads(response_text)
-                            if data.get("code") == 0 and data["data"]:
-                                # Успешное завершение
-                                result = data["data"][0]
-                                if result.get("fileUrl"):
-                                    logger.info(f"Task {task_id} completed successfully")
-                                    result_url = result["fileUrl"]
-                                    task_completed = True
-                                    break
-                                elif result.get("text"):
-                                    logger.info(f"Task {task_id} completed successfully")
-                                    result_url = result["text"]
-                                    task_completed = True
-                                    break
+                            if data.get("code") == 0 and data.get("data"):
+                                task_info = data["data"]
+                                task_id = task_info.get("taskId")
+                                if task_id:
+                                    # Успешное завершение
+                                    result = data["data"][0]
+                                    if result.get("fileUrl"):
+                                        logger.info(f"Task {task_id} completed successfully")
+                                        result_url = result["fileUrl"]
+                                        task_completed = True
+                                        break
+                                    elif result.get("text"):
+                                        logger.info(f"Task {task_id} completed successfully")
+                                        result_url = result["text"]
+                                        task_completed = True
+                                        break
+                                    else:
+                                        logger.error("Task completed but no result found")
+                                        break
                                 else:
-                                    logger.error("Task completed but no result found")
-                                    break
+                                    logger.error(f"No taskId in response: {task_info}")
                             elif data.get("code") == 804:  # APIKEY_TASK_IS_RUNNING
                                 logger.info("Task is still running, waiting...")
                                 await asyncio.sleep(delay)
@@ -281,11 +286,17 @@ class RunningHubAPI:
                     try:
                         data = json.loads(response_text)
                         if data.get("code") == 0 and data.get("data"):
-                            task_id = str(data["data"])
-                            # Сохраняем аккаунт для этой задачи
-                            self.task_accounts[task_id] = account
-                            logger.info(f"Created task {task_id}")
-                            return task_id
+                            task_info = data["data"]
+                            task_id = task_info.get("taskId")
+                            if task_id:
+                                # Сохраняем аккаунт для этой задачи
+                                self.task_accounts[task_id] = account
+                                logger.info(f"Created task {task_info}")
+                                return task_id
+                            else:
+                                logger.error(f"No taskId in response: {task_info}")
+                        else:
+                            logger.error(f"API error: {data.get('msg', 'Unknown error')}")
                     except json.JSONDecodeError as e:
                         logger.error(f"Failed to parse task creation response: {e}")
                         continue
@@ -309,7 +320,7 @@ class RunningHubAPI:
         account = self.task_accounts.get(task_id)
         if not account:
             logger.error(f"No account found for task {task_id}")
-            return None
+            return "failed", None
 
         payload = {
             "taskId": task_id,
@@ -320,23 +331,35 @@ class RunningHubAPI:
         if status == 200 and response_text:
             try:
                 data = json.loads(response_text)
-                if data.get("code") == 0 and data["data"]:
-                    # Задача завершена успешно
-                    result = data["data"][0]
-                    if result.get("fileUrl"):
-                        return "completed", result["fileUrl"]
-                    elif result.get("text"):
-                        return "completed", result["text"]
+                if data.get("code") == 0:
+                    task_info = data.get("data", {})
+                    task_status = task_info.get("taskStatus", "").upper()
+                    
+                    if task_status == "SUCCEEDED":
+                        outputs = task_info.get("outputs", [])
+                        if outputs and isinstance(outputs, list):
+                            for output in outputs:
+                                if output.get("fileUrl"):
+                                    return "completed", output["fileUrl"]
+                        logger.error(f"No output URL in completed task: {task_info}")
+                        return "failed", None
+                    elif task_status == "FAILED":
+                        logger.error(f"Task failed: {task_info}")
+                        return "failed", None
+                    elif task_status in ["RUNNING", "PENDING", "QUEUED"]:
+                        return "processing", None
                     else:
-                        logger.error("Task completed but no result found")
-                        return None
+                        logger.error(f"Unknown task status: {task_status}")
+                        return "failed", None
                 elif data.get("code") == 804:  # APIKEY_TASK_IS_RUNNING
                     return "processing", None
                 elif data.get("code") == 805:  # APIKEY_TASK_QUEUE
                     return "queued", None
                 else:
+                    logger.error(f"API error: {data.get('msg', 'Unknown error')}")
                     return "failed", None
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse task status response: {e}")
                 return "failed", None
         return "failed", None
 
@@ -376,6 +399,8 @@ class RunningHubAPI:
                 # Записываем данные во временные файлы
                 product_file.write(product_data)
                 background_file.write(background_data)
+                product_file.flush()
+                background_file.flush()
                 
                 try:
                     # Создаем задачу
@@ -396,10 +421,6 @@ class RunningHubAPI:
                     while time.time() - start_time < config.runninghub.task_timeout:
                         status, result_url = await self.get_generation_status(task_id)
                         
-                        if not status:
-                            logger.error("Failed to get task status")
-                            break
-                            
                         if status == "completed" and result_url:
                             logger.info(f"Task {task_id} completed successfully")
                             return result_url
@@ -408,15 +429,25 @@ class RunningHubAPI:
                             logger.error(f"Task {task_id} failed")
                             break
                             
-                        await asyncio.sleep(config.runninghub.polling_interval)
+                        # Продолжаем ждать, если задача в процессе
+                        if status in ["processing", "queued"]:
+                            await asyncio.sleep(config.runninghub.polling_interval)
+                            continue
+                            
+                        # Неизвестный статус
+                        logger.error(f"Unknown task status: {status}")
+                        break
                     
                     logger.error(f"Task {task_id} timed out")
                     return None
                     
                 finally:
                     # Удаляем временные файлы
-                    os.unlink(product_file.name)
-                    os.unlink(background_file.name)
+                    try:
+                        os.unlink(product_file.name)
+                        os.unlink(background_file.name)
+                    except Exception as e:
+                        logger.error(f"Error removing temporary files: {str(e)}")
                     # Освобождаем аккаунт
                     await account_manager.release_account(account)
                     
