@@ -163,27 +163,46 @@ class RunningHubAPI:
         try:
             logger.info(f"Starting photo processing for user {user_id}")
             
+            # Создаем директорию temp если её нет
+            os.makedirs("temp", exist_ok=True)
+            
             # Скачиваем фотографии
             product_path = f"temp/product_{user_id}.jpg"
             background_path = f"temp/background_{user_id}.jpg"
             
-            await self.bot.download_file_by_id(product_photo_id, product_path)
-            logger.info(f"Successfully downloaded photo to {product_path}")
+            # Получаем информацию о файлах
+            product_file = await self.bot.get_file(product_photo_id)
+            background_file = await self.bot.get_file(background_photo_id)
             
-            await self.bot.download_file_by_id(background_photo_id, background_path)
-            logger.info(f"Successfully downloaded photo to {background_path}")
+            # Скачиваем файлы
+            await self.bot.download_file(product_file.file_path, product_path)
+            logger.info(f"Successfully downloaded product photo to {product_path}")
             
-            # Создаем задачу
-            task_id = await self.create_task(product_path, background_path)
-            if not task_id:
-                raise RuntimeError("Failed to create task")
+            await self.bot.download_file(background_file.file_path, background_path)
+            logger.info(f"Successfully downloaded background photo to {background_path}")
+            
+            try:
+                # Создаем задачу
+                task_id = await self.create_task(product_path, background_path)
+                if not task_id:
+                    raise RuntimeError("Failed to create task")
+                    
+                # Ждем результат
+                result_url = await self._wait_for_result(task_id)
+                if not result_url:
+                    raise RuntimeError("Failed to get task result")
+                    
+                return result_url
                 
-            # Ждем результат
-            result_url = await self._wait_for_result(task_id)
-            if not result_url:
-                raise RuntimeError("Failed to get task result")
-                
-            return result_url
+            finally:
+                # Удаляем временные файлы
+                try:
+                    if os.path.exists(product_path):
+                        os.remove(product_path)
+                    if os.path.exists(background_path):
+                        os.remove(background_path)
+                except Exception as e:
+                    logger.error(f"Error removing temp files: {e}")
             
         except Exception as e:
             logger.error(f"Error processing photos: {str(e)}")
