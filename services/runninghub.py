@@ -36,22 +36,30 @@ class RunningHubAPI:
         
     def _create_connector(self) -> aiohttp.TCPConnector:
         """Создание TCP коннектора с настроенным SSL"""
+        ssl_context = ssl.create_default_context()
+        ssl_context.set_alpn_protocols(["http/1.1"])
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        
         return aiohttp.TCPConnector(
-            verify_ssl=False,
+            ssl=ssl_context,
             force_close=True,
-            enable_cleanup_closed=True
+            enable_cleanup_closed=True,
+            verify_ssl=False,
+            ttl_dns_cache=300
         )
         
     async def _get_session(self) -> aiohttp.ClientSession:
         """Создание или получение существующей сессии"""
         if not hasattr(self, '_session') or self._session is None or self._session.closed:
-            timeout = aiohttp.ClientTimeout(total=30)
+            timeout = aiohttp.ClientTimeout(total=30, connect=10)
             self._session = aiohttp.ClientSession(
                 connector=self._create_connector(),
                 timeout=timeout,
                 headers={
                     'Accept': 'application/json',
-                    'User-Agent': 'RunningHub-Client/1.0'
+                    'User-Agent': 'RunningHub-Client/1.0',
+                    'Connection': 'keep-alive'
                 }
             )
             self.logger.info("Created new aiohttp session")
