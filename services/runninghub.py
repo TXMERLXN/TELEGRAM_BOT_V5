@@ -221,107 +221,57 @@ class RunningHubAPI:
             except Exception as e:
                 logger.error(f"Error cleaning up temporary files: {str(e)}")
 
-    async def _wait_for_result(self, task_id: str) -> Optional[str]:
-        """Ожидание результата генерации"""
-        try:
-            data = {
-                "taskId": task_id,
-                "apiKey": self.api_key
-            }
-            
-            headers = {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json'
-            }
-            
-            max_attempts = 60  # Максимальное количество попыток (5 минут при задержке в 5 секунд)
-            last_url = None  # Для отслеживания изменений URL
-            
-            for attempt in range(max_attempts):
-                try:
-                    # Проверяем статус аккаунта
-                    is_busy = await self._check_account_status()
-                    if is_busy is None:
-                        logger.warning("Failed to check account status, continuing with result check")
-                    elif is_busy:
-                        logger.debug(f"Account is busy, waiting... [{attempt+1}/{max_attempts}]")
-                        await asyncio.sleep(5)
+    async def _wait_for_result(self, task_id: str, max_attempts: int = 60, delay: int = 5) -> Optional[str]:
+        """Ожидание результата задачи"""
+        logger.info(f"Waiting for task {task_id} result")
+        
+        for attempt in range(max_attempts):
+            try:
+                # Проверяем статус задачи
+                status_data = {
+                    "taskId": task_id,
+                    "apiKey": self.api_key
+                }
+                
+                async with self.get_session().post(
+                    f"{self.api_url}/task/openapi/outputs",
+                    json=status_data,
+                    timeout=30
+                ) as response:
+                    response_text = await response.text()
+                    logger.info(f"Task status response: {response_text}")
+                    
+                    if response.status != 200:
+                        logger.error(f"Failed to get task status: Status {response.status}")
+                        await asyncio.sleep(delay)
                         continue
-                    else:
-                        logger.debug(f"Account is not busy, proceeding with result check [{attempt+1}/{max_attempts}]")
-                    
-                    # Пробуем получить результат
-                    async with self.get_session().post(
-                        f"{self.api_url}/task/openapi/outputs",
-                        json=data,
-                        headers=headers,
-                        timeout=30
-                    ) as response:
-                        response_text = await response.text()
-                        logger.debug(f"Get result response [{attempt+1}/{max_attempts}]: {response_text}")
                         
-                        if response.status != 200:
-                            logger.error(f"Error response from API: Status {response.status}, Body: {response_text}")
-                            await asyncio.sleep(5)
-                            continue
-                            
-                        try:
-                            result = await response.json()
-                        except Exception as e:
-                            logger.error(f"Failed to parse JSON response: {response_text}")
-                            await asyncio.sleep(5)
-                            continue
-                            
-                        if result.get('code') != 0:
-                            error_msg = result.get('msg', 'Unknown error')
-                            if error_msg == 'APIKEY_TASK_IS_RUNNING':
-                                logger.debug(f"Task is still running, waiting... [{attempt+1}/{max_attempts}]")
-                            else:
-                                logger.error(f"API error: {error_msg}")
-                            await asyncio.sleep(5)
-                            continue
-                            
-                        if not result.get('data'):
-                            logger.debug(f"No data in response yet, waiting... [{attempt+1}/{max_attempts}]")
-                            await asyncio.sleep(5)
-                            continue
-                            
-                        file_url = result['data'][0].get('fileUrl')
-                        if not file_url:
-                            logger.error(f"No fileUrl in response data: {result}")
-                            await asyncio.sleep(5)
-                            continue
-                            
-                        # Проверяем, изменился ли URL
-                        if file_url == last_url:
-                            logger.debug(f"URL hasn't changed, waiting for new result... [{attempt+1}/{max_attempts}]")
-                            await asyncio.sleep(5)
-                            continue
-                            
-                        # Проверяем, что URL содержит ID задачи
-                        if task_id not in file_url:
-                            logger.debug(f"URL doesn't match task ID, waiting... [{attempt+1}/{max_attempts}]")
-                            await asyncio.sleep(5)
-                            continue
-                            
-                        last_url = file_url
-                        logger.info(f"Task completed successfully: {file_url}")
-                        return file_url
+                    result = await response.json()
+                    if result.get('code') != 0:
+                        error_msg = result.get('msg', 'Unknown error')
+                        logger.error(f"API error: {error_msg}")
+                        if error_msg == 'TASK_NOT_FOUND':
+                            return None
+                        await asyncio.sleep(delay)
+                        continue
                         
-                except asyncio.TimeoutError:
-                    logger.warning(f"Timeout on attempt {attempt+1}/{max_attempts}, retrying...")
-                    await asyncio.sleep(5)
-                    continue
-                except Exception as e:
-                    logger.error(f"Error on attempt {attempt+1}/{max_attempts}: {str(e)}")
-                    await asyncio.sleep(5)
-                    continue
+                    # Проверяем, есть ли результат
+                    output_data = result.get('data', [])
+                    if output_data and isinstance(output_data, list) and len(output_data) > 0:
+                        file_url = output_data[0].get('fileUrl')
+                        if file_url:
+                            logger.info(f"Task completed successfully, result URL: {file_url}")
+                            return file_url
+                            
+                    logger.info(f"Task {task_id} still processing, attempt {attempt + 1}/{max_attempts}")
+                    await asyncio.sleep(delay)
                     
-            raise RuntimeError(f"Timeout waiting for task result after {max_attempts} attempts")
-            
-        except Exception as e:
-            logger.error(f"Error getting task result: {str(e)}")
-            raise
+            except Exception as e:
+                logger.error(f"Error checking task status: {str(e)}")
+                await asyncio.sleep(delay)
+                
+        logger.error(f"Timeout waiting for task result after {max_attempts} attempts")
+        return None
 
     async def _check_account_status(self) -> Optional[bool]:
         """Проверка статуса аккаунта"""
