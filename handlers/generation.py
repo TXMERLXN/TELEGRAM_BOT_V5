@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 from typing import Optional, Union
 
 from aiogram import Bot, F, Router
@@ -39,6 +40,14 @@ async def init_runninghub(bot: Bot):
     )
     await runninghub.initialize()
 
+    # Инициализируем очередь задач
+    task_queue.add_account(
+        api_key=os.getenv('RUNNINGHUB_API_KEY'),
+        workflow_id=os.getenv('RUNNINGHUB_WORKFLOW_PRODUCT'),
+        max_concurrent_tasks=1
+    )
+    await task_queue.initialize()
+
 logger = logging.getLogger(__name__)
 
 @router.message(Command("generate"))
@@ -62,7 +71,7 @@ async def start_generation(event: Union[Message, CallbackQuery], state: FSMConte
 async def handle_product_photo(message: Message, state: FSMContext):
     """Обработка фото продукта"""
     logger.info(f"User {message.from_user.id} sent product photo")
-    await state.update_data(product_photo=message.photo[-1].file_id)
+    await state.update_data(product_photo_id=message.photo[-1].file_id)
     await state.set_state(GenerationState.waiting_for_background)
     await message.answer(SEND_BACKGROUND_PHOTO, reply_markup=get_back_keyboard())
 
@@ -73,43 +82,51 @@ async def handle_background_photo(message: Message, state: FSMContext):
     
     # Получаем сохраненные данные
     data = await state.get_data()
-    product_photo_id = data.get('product_photo')
+    product_photo_id = data.get('product_photo_id')
+    background_photo_id = message.photo[-1].file_id
     
     if not product_photo_id:
         await message.answer(GENERATION_FAILED)
         await state.clear()
         return
     
+    await state.update_data(background_photo_id=background_photo_id)
+    
     # Устанавливаем состояние обработки
     await state.set_state(GenerationState.processing)
-    processing_message = await message.answer(PROCESSING_STARTED)
+    await process_photos(message, state)
+
+async def process_photos(message: Message, state: FSMContext) -> None:
+    """Обработка фотографий"""
+    data = await state.get_data()
+    product_photo_id = data.get('product_photo_id')
+    background_photo_id = data.get('background_photo_id')
+    
+    if not product_photo_id or not background_photo_id:
+        await message.answer("Ошибка: не найдены фотографии для обработки")
+        return
+        
+    processing_message = await message.answer("⏳ Обрабатываю фотографии...")
     
     try:
-        # Добавляем задачу в очередь
-        task = await task_queue.add_task(
-            runninghub.process_photos,
-            product_photo_id,
-            message.photo[-1].file_id,
-            message.from_user.id
+        # Используем TaskQueue для обработки фотографий
+        result_url = await task_queue.process_photos(
+            product_photo_id=product_photo_id,
+            background_photo_id=background_photo_id,
+            user_id=message.from_user.id
         )
         
-        # Сохраняем ID сообщения для обновления
-        await state.update_data(processing_message_id=processing_message.message_id)
-        
-        # Если задача выполнена успешно
-        if task:
+        if result_url:
+            await processing_message.delete()
             await message.answer_photo(
-                FSInputFile(task),
-                caption=PROCESSING_COMPLETE,
-                reply_markup=get_result_keyboard()
+                URLInputFile(result_url),
+                caption="✅ Готово! Вот результат обработки."
             )
         else:
-            await message.answer(PROCESSING_FAILED)
-            
+            await processing_message.edit_text("❌ Не удалось обработать фотографии. Попробуйте еще раз.")
     except Exception as e:
-        logger.error(f"Error creating task: {str(e)}")
-        await message.answer(GENERATION_FAILED)
-        await state.clear()
+        logger.error(f"Error processing photos: {str(e)}")
+        await processing_message.edit_text("❌ Произошла ошибка при обработке фотографий. Попробуйте еще раз.")
 
 @router.message(GenerationState.waiting_for_product)
 @router.message(GenerationState.waiting_for_background)

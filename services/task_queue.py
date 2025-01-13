@@ -1,154 +1,103 @@
 import asyncio
 import logging
-from typing import Dict, Optional, Any, Callable, Awaitable
-from dataclasses import dataclass
-from datetime import datetime
-from config import load_config
+import os
+from typing import Dict, List, Optional
+from services.runninghub import RunningHubAPI
+from aiogram import Bot
 
-config = load_config()
 logger = logging.getLogger(__name__)
 
-@dataclass
-class TaskInfo:
-    user_id: int
-    task_id: str
-    start_time: datetime
-    status: str
-    result_url: Optional[str] = None
-    retries: int = 0
-    error_message: Optional[str] = None
-    callback: Optional[Callable] = None
-    args: Optional[tuple] = None
+class RunningHubAccount:
+    """Класс для хранения информации об аккаунте RunningHub"""
+    def __init__(self, api_key: str, workflow_id: str, max_concurrent_tasks: int = 1):
+        self.api_key = api_key
+        self.workflow_id = workflow_id
+        self.max_concurrent_tasks = max_concurrent_tasks
+        self.current_tasks = 0
+        
+    @property
+    def is_available(self) -> bool:
+        """Проверяет, доступен ли аккаунт для новых задач"""
+        return self.current_tasks < self.max_concurrent_tasks
+        
+    def increment_tasks(self):
+        """Увеличивает счетчик текущих задач"""
+        self.current_tasks += 1
+        
+    def decrement_tasks(self):
+        """Уменьшает счетчик текущих задач"""
+        if self.current_tasks > 0:
+            self.current_tasks -= 1
 
 class TaskQueue:
-    def __init__(self):
-        self.active_tasks: Dict[str, TaskInfo] = {}
-        self.queue: asyncio.Queue = asyncio.Queue()
-        self.semaphore = asyncio.Semaphore(config.runninghub.max_concurrent_tasks)
-        self.processing_tasks: Dict[str, asyncio.Task] = {}
-        self.lock = asyncio.Lock()
+    """Класс для управления очередью задач и аккаунтами RunningHub"""
+    
+    def __init__(self, bot: Bot, api_url: str):
+        self.bot = bot
+        self.api_url = api_url
+        self.accounts: List[RunningHubAccount] = []
+        self.apis: Dict[str, RunningHubAPI] = {}
         
-    async def add_task(self, callback: Callable[..., Awaitable[Any]], *args) -> Any:
-        """
-        Добавляет задачу в очередь
-        
-        Args:
-            callback: Функция для выполнения
-            *args: Аргументы для функции
-            
-        Returns:
-            Результат выполнения функции
-        """
-        task_id = f"{len(self.active_tasks) + 1}"
-        user_id = args[-1] if args else 0  # Последний аргумент - user_id
-        
-        task_info = TaskInfo(
-            user_id=user_id,
-            task_id=task_id,
-            start_time=datetime.now(),
-            status="queued",
-            callback=callback,
-            args=args
+    def add_account(self, api_key: str, workflow_id: str, max_concurrent_tasks: int = 1):
+        """Добавляет новый аккаунт в пул"""
+        account = RunningHubAccount(api_key, workflow_id, max_concurrent_tasks)
+        self.accounts.append(account)
+        # Создаем API клиент для аккаунта
+        api = RunningHubAPI(
+            bot=self.bot,
+            api_url=self.api_url,
+            api_key=api_key,
+            workflow_id=workflow_id
         )
+        self.apis[api_key] = api
+        logger.info(f"Added new RunningHub account with max tasks: {max_concurrent_tasks}")
         
-        self.active_tasks[task_id] = task_info
-        logger.info(f"Task {task_id} added to queue for user {user_id}")
-        
-        # Выполняем функцию
-        try:
-            result = await callback(*args)
-            task_info.status = "completed"
-            task_info.result_url = result
-            return result
-        except Exception as e:
-            task_info.status = "failed"
-            task_info.error_message = str(e)
-            raise
-
-    async def get_next_task(self) -> Optional[str]:
-        """Получает следующую задачу из очереди"""
-        try:
-            return await self.queue.get()
-        except asyncio.QueueEmpty:
+    async def initialize(self):
+        """Инициализация всех API клиентов"""
+        for api in self.apis.values():
+            await api.initialize()
+            
+    async def close(self):
+        """Закрытие всех API клиентов"""
+        for api in self.apis.values():
+            await api.close()
+            
+    def get_available_account(self) -> Optional[RunningHubAccount]:
+        """Возвращает доступный аккаунт с наименьшим количеством задач"""
+        available_accounts = [acc for acc in self.accounts if acc.is_available]
+        if not available_accounts:
             return None
-
-    def update_task_status(self, task_id: str, status: str, result_url: Optional[str] = None, error_message: Optional[str] = None) -> None:
-        """Обновляет статус задачи"""
-        if task_id in self.active_tasks:
-            task_info = self.active_tasks[task_id]
-            task_info.status = status
-            if result_url:
-                task_info.result_url = result_url
-            if error_message:
-                task_info.error_message = error_message
-            logger.info(f"Task {task_id} status updated to {status}")
-
-    def get_task_info(self, task_id: str) -> Optional[TaskInfo]:
-        """Получает информацию о задаче"""
-        return self.active_tasks.get(task_id)
-
-    def remove_task(self, task_id: str) -> None:
-        """Удаляет задачу"""
-        if task_id in self.active_tasks:
-            del self.active_tasks[task_id]
-            logger.info(f"Task {task_id} removed")
-
-    async def process_task(self, task_id: str) -> None:
-        """Обрабатывает задачу"""
-        if task_id not in self.active_tasks:
-            return
-
-        task_info = self.active_tasks[task_id]
-        if not task_info.callback:
-            return
-
+        return min(available_accounts, key=lambda x: x.current_tasks)
+        
+    async def process_photos(self, product_photo_id: str, background_photo_id: str, user_id: int) -> Optional[str]:
+        """Обработка фотографий через доступный аккаунт"""
+        account = self.get_available_account()
+        if not account:
+            logger.warning("No available accounts for processing")
+            return None
+            
         try:
-            async with self.semaphore:
-                result = await task_info.callback(*task_info.args)
-                self.update_task_status(task_id, "completed", result_url=result)
-        except Exception as e:
-            logger.error(f"Error processing task {task_id}: {str(e)}")
-            self.update_task_status(task_id, "failed", error_message=str(e))
+            account.increment_tasks()
+            api = self.apis[account.api_key]
+            result = await api.process_photos(product_photo_id, background_photo_id, user_id)
+            return result
         finally:
-            if task_id in self.processing_tasks:
-                del self.processing_tasks[task_id]
-
-    def get_active_tasks_count(self) -> int:
-        """Возвращает количество активных задач"""
-        return len(self.active_tasks)
-
-    def get_user_tasks(self, user_id: int) -> Dict[str, TaskInfo]:
-        """Получает все задачи пользователя"""
-        return {
-            task_id: task_info
-            for task_id, task_info in self.active_tasks.items()
-            if task_info.user_id == user_id
-        }
-
-    def cancel_user_tasks(self, user_id: int) -> None:
-        """Отменяет все задачи пользователя"""
-        for task_id, task_info in list(self.active_tasks.items()):
-            if task_info.user_id == user_id:
-                self.remove_task(task_id)
-
-    async def cleanup_old_tasks(self, max_age_seconds: int = 3600) -> None:
-        """Очищает старые задачи"""
-        now = datetime.now()
-        for task_id, task_info in list(self.active_tasks.items()):
-            age = (now - task_info.start_time).total_seconds()
-            if age > max_age_seconds:
-                self.remove_task(task_id)
-
-    async def cancel_all_tasks(self):
-        """Отменяет все активные задачи"""
-        logger.info("Cancelling all active tasks")
-        async with self.lock:
-            for task_id in list(self.active_tasks.keys()):
-                task = self.active_tasks[task_id]
-                if task.status == "processing":
-                    logger.info(f"Cancelling task {task_id}")
-                    self.remove_task(task_id)
-            self.active_tasks.clear()
+            account.decrement_tasks()
+            
+    @property
+    def total_accounts(self) -> int:
+        """Возвращает общее количество аккаунтов"""
+        return len(self.accounts)
+        
+    @property
+    def available_accounts(self) -> int:
+        """Возвращает количество доступных аккаунтов"""
+        return len([acc for acc in self.accounts if acc.is_available])
+        
+    @property
+    def total_active_tasks(self) -> int:
+        """Возвращает общее количество активных задач"""
+        return sum(acc.current_tasks for acc in self.accounts)
 
 # Глобальный экземпляр очереди задач
-task_queue = TaskQueue()
+task_queue = TaskQueue(Bot(token=os.environ['BOT_TOKEN']), api_url='https://api.runninghub.com')

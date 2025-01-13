@@ -17,6 +17,8 @@ class RunningHubAPI:
         self,
         bot: Bot,
         api_url: str,
+        api_key: str,
+        workflow_id: str,
         task_timeout: int = 300,
         retry_delay: int = 5,
         max_retries: int = 3,
@@ -24,6 +26,8 @@ class RunningHubAPI:
     ):
         self.bot = bot
         self.api_url = api_url.rstrip('/')
+        self.api_key = api_key
+        self.workflow_id = workflow_id
         self.task_timeout = task_timeout
         self.retry_delay = retry_delay
         self.max_retries = max_retries
@@ -84,17 +88,9 @@ class RunningHubAPI:
             if not background_path.exists() or background_path.stat().st_size == 0:
                 raise Exception(f"Background file does not exist or is empty: {background_path}")
             
-            # Загружаем файлы на RunningHub
-            logger.info("Uploading files to RunningHub")
-            product_filename = await self._upload_file(str(product_path))
-            background_filename = await self._upload_file(str(background_path))
-            
-            if not product_filename or not background_filename:
-                raise Exception("Failed to upload files")
-            
             # Создаем задачу
-            logger.info("Creating task with uploaded files")
-            task_id = await self.create_task(product_filename, background_filename)
+            logger.info("Creating task with downloaded photos")
+            task_id = await self.create_task(str(product_path), str(background_path))
             if not task_id:
                 raise Exception("Failed to create task: no task_id returned")
             
@@ -133,96 +129,43 @@ class RunningHubAPI:
         except Exception as e:
             logger.error(f"Error downloading file {file_id}: {str(e)}")
             raise
-            
-    async def _upload_file(self, file_path: str) -> Optional[str]:
-        """Загрузка файла на RunningHub"""
-        try:
-            data = aiohttp.FormData()
-            data.add_field('apiKey', os.getenv('RUNNINGHUB_API_KEY', ''))
-            data.add_field('fileType', 'image')
-            data.add_field('file',
-                          open(file_path, 'rb'),
-                          filename=os.path.basename(file_path),
-                          content_type='image/jpeg')
-            
-            logger.debug(f"Uploading file {file_path} to RunningHub")
-            async with self.session.post(
-                f"{self.api_url}/task/openapi/upload",
-                data=data,
-                timeout=30
-            ) as response:
-                response_text = await response.text()
-                logger.debug(f"Upload response: {response.status} - {response_text}")
-                
-                if response.status == 200:
-                    result = await response.json()
-                    if result.get('code') == 0:
-                        filename = result.get('data', {}).get('fileName')
-                        if filename:
-                            logger.debug(f"File uploaded successfully: {filename}")
-                            return filename
-                        else:
-                            logger.error(f"No filename in upload response: {result}")
-                            return None
-                    else:
-                        logger.error(f"Upload failed: {result.get('msg')}")
-                        return None
-                else:
-                    logger.error(f"Error uploading file: {response.status} - {response_text}")
-                    return None
-                    
-        except Exception as e:
-            logger.error(f"Error uploading file: {str(e)}")
-            return None
         
-    async def create_task(self, product_filename: str, background_filename: str) -> Optional[str]:
+    async def create_task(self, product_path: str, background_path: str) -> Optional[str]:
         """Создание задачи в RunningHub"""
         try:
-            # Формируем данные для создания задачи
-            data = {
-                'workflowId': os.getenv('RUNNINGHUB_WORKFLOW_PRODUCT', ''),
-                'apiKey': os.getenv('RUNNINGHUB_API_KEY', ''),
-                'nodeInfoList': [
-                    {
-                        'nodeId': '10',  # ID ноды для загрузки изображения продукта
-                        'fieldName': 'image',
-                        'fieldValue': product_filename
-                    },
-                    {
-                        'nodeId': '20',  # ID ноды для загрузки изображения фона
-                        'fieldName': 'image',
-                        'fieldValue': background_filename
-                    }
-                ]
-            }
+            # Создаем form-data с файлами
+            data = aiohttp.FormData()
+            data.add_field('product_image',
+                          open(product_path, 'rb'),
+                          filename='product.jpg',
+                          content_type='image/jpeg')
+            data.add_field('background_image',
+                          open(background_path, 'rb'),
+                          filename='background.jpg',
+                          content_type='image/jpeg')
             
-            logger.debug(f"Creating task with data: {data}")
+            logger.debug(f"Sending POST request to {self.api_url}/tasks")
             headers = {
                 'Accept': 'application/json',
-                'Content-Type': 'application/json'
+                'X-API-Key': self.api_key
             }
             
             async with self.session.post(
-                f"{self.api_url}/task/openapi/create",
-                json=data,
+                f"{self.api_url}/tasks",
+                data=data,
                 headers=headers,
                 timeout=30
             ) as response:
                 response_text = await response.text()
-                logger.debug(f"Create task response: {response.status} - {response_text}")
+                logger.debug(f"API response: {response.status} - {response_text}")
                 
                 if response.status == 200:
                     result = await response.json()
-                    if result.get('code') == 0:
-                        task_id = result.get('data', {}).get('taskId')
-                        if task_id:
-                            return task_id
-                        else:
-                            logger.error(f"No taskId in response: {result}")
-                            return None
-                    else:
-                        logger.error(f"Task creation failed: {result.get('msg')}")
+                    task_id = result.get('task_id')
+                    if not task_id:
+                        logger.error(f"No task_id in response: {result}")
                         return None
+                    return task_id
                 else:
                     logger.error(f"Error creating task: {response.status} - {response_text}")
                     return None
@@ -241,48 +184,43 @@ class RunningHubAPI:
                 return None
                 
             try:
-                logger.debug(f"Checking task status: {task_id}")
-                data = {
-                    'taskId': task_id,
-                    'apiKey': os.getenv('RUNNINGHUB_API_KEY', '')
-                }
-                
+                logger.debug(f"Checking status for task {task_id}")
                 headers = {
                     'Accept': 'application/json',
-                    'Content-Type': 'application/json'
+                    'X-API-Key': self.api_key
                 }
                 
-                async with self.session.post(
-                    f"{self.api_url}/task/openapi/outputs",
-                    json=data,
+                async with self.session.get(
+                    f"{self.api_url}/tasks/{task_id}",
                     headers=headers,
                     timeout=10
                 ) as response:
                     response_text = await response.text()
                     logger.debug(f"Status check response: {response.status} - {response_text}")
                     
-                    if response.status == 200:
-                        result = await response.json()
-                        if result.get('code') == 0:
-                            data = result.get('data', [])
-                            if data and isinstance(data, list) and len(data) > 0:
-                                file_url = data[0].get('fileUrl')
-                                if file_url:
-                                    return file_url
-                                else:
-                                    logger.error(f"No fileUrl in response data: {data}")
-                                    return None
-                            else:
-                                # Задача еще выполняется
-                                await asyncio.sleep(self.polling_interval)
-                                continue
-                        else:
-                            logger.error(f"Task check failed: {result.get('msg')}")
-                            return None
-                    else:
+                    if response.status != 200:
                         logger.error(f"Error checking task status: {response.status} - {response_text}")
                         return None
+                        
+                    result = await response.json()
+                    status = result.get('status')
+                    logger.debug(f"Task {task_id} status: {status}")
+                    
+                    if status == 'completed':
+                        result_url = result.get('result_url')
+                        if not result_url:
+                            logger.error(f"No result_url in completed task response: {result}")
+                            return None
+                        return result_url
+                    elif status == 'failed':
+                        error = result.get('error', 'Unknown error')
+                        logger.error(f"Task {task_id} failed: {error}")
+                        return None
+                        
+                    # Ждем перед следующей проверкой
+                    logger.debug(f"Task {task_id} still processing, waiting {self.polling_interval} seconds")
+                    await asyncio.sleep(self.polling_interval)
                     
             except Exception as e:
-                logger.error(f"Error checking task status: {str(e)}")
+                logger.error(f"Error checking task {task_id} status: {str(e)}")
                 return None
