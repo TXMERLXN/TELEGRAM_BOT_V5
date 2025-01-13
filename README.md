@@ -127,8 +127,8 @@ Telegram бот для генерации профессиональных фо�
     "apiKey": "your_api_key",
     "workflowId": "workflow_id",
     "inputs": {
-      "product": "path/to/product.png",
-      "background": "path/to/background.png"
+      "2": "path/to/product.png",
+      "32": "path/to/background.png"
     }
   }
   ```

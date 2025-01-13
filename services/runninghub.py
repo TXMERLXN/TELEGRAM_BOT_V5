@@ -276,8 +276,8 @@ class RunningHubAPI:
                     "apiKey": account.api_key,
                     "workflowId": workflow_id,
                     "inputs": {
-                        "product": str(product_filename),
-                        "background": str(background_filename)
+                        "2": str(product_filename),  # Нода #2 для изображения товара
+                        "32": str(background_filename)  # Нода #32 для изображения фона
                     }
                 }
                 
