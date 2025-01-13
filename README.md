@@ -163,13 +163,7 @@ Telegram бот для генерации профессиональных фо�
   {
     "code": 0,
     "msg": "success",
-    "data": {
-      "taskId": "task_id",
-      "taskStatus": "SUCCEEDED|FAILED|RUNNING|PENDING|QUEUED",
-      "promptTips": {
-        "node_errors": {}
-      }
-    }
+    "data": "SUCCEEDED|FAILED|RUNNING|PENDING|QUEUED"
   }
   ```
 

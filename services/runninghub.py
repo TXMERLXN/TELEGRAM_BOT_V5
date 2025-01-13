@@ -335,9 +335,9 @@ class RunningHubAPI:
         if status == 200 and response_text:
             try:
                 data = json.loads(response_text)
-                if data.get("code") == 0 and data.get("data"):
-                    task_info = data["data"]
-                    task_status = task_info.get("taskStatus", "").upper()
+                if data.get("code") == 0:
+                    task_status = str(data.get("data", "")).upper()
+                    logger.debug(f"Task status: {task_status}")
                     
                     if task_status == "SUCCEEDED":
                         # Получаем результат через отдельный endpoint
@@ -364,7 +364,7 @@ class RunningHubAPI:
                         
                         return "failed", None
                     elif task_status == "FAILED":
-                        logger.error(f"Task failed: {task_info}")
+                        logger.error(f"Task failed with status: {task_status}")
                         return "failed", None
                     elif task_status in ["RUNNING", "PENDING", "QUEUED"]:
                         return "processing", None
