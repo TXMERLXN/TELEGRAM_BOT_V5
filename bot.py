@@ -30,14 +30,27 @@ async def on_startup(bot: Bot, dispatcher: Dispatcher):
     
     # Инициализация RunningHub аккаунтов
     accounts_data = config.runninghub.accounts
-    for account in accounts_data:
-        api = RunningHubAPI(
-            api_url=os.getenv('RUNNINGHUB_API_URL', 'https://www.runninghub.ai'),
-            api_key=account.api_key,
-            workflow_id=account.workflows["product"]
-        )
-        task_queue.add_account(api, account.max_jobs)
-    logger.info(f"Initialized {len(accounts_data)} RunningHub accounts")
+    try:
+        for account in accounts_data:
+            api = RunningHubAPI(
+                api_url=config.runninghub.api_url,
+                api_key=account.api_key,
+                workflow_id=account.workflows["product"]
+            )
+            # Проверяем статус аккаунта перед добавлением
+            if await api._check_account_status():
+                task_queue.add_account(api, account.max_jobs)
+                logger.info(f"Successfully initialized RunningHub account with workflow {account.workflows['product']}")
+            else:
+                logger.error(f"Failed to initialize RunningHub account: invalid status")
+        
+        initialized_accounts = len(task_queue.accounts)
+        if initialized_accounts == 0:
+            raise ValueError("No RunningHub accounts were initialized")
+        logger.info(f"Successfully initialized {initialized_accounts} RunningHub accounts")
+    except Exception as e:
+        logger.error(f"Failed to initialize RunningHub accounts: {str(e)}", exc_info=True)
+        sys.exit(1)
     
     # Инициализация API клиентов
     task_queue.initialize_clients()

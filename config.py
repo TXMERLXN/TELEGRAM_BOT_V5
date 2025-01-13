@@ -22,7 +22,7 @@ class RunningHub:
     task_timeout: int = 600  # Таймаут задачи в секундах (10 минут)
     retry_delay: int = 5  # Задержка между попытками в секундах
     max_retries: int = 3  # Максимальное количество попыток для HTTP запросов
-    max_tasks: int = 15  # Максимальное количество одновременных задач (5 задач * 3 аккаунта)
+    max_tasks: int = 5  # Максимальное количество одновременных задач на аккаунт
     polling_interval: int = 5  # Интервал проверки статуса задачи в секундах
 
 @dataclass
@@ -48,25 +48,28 @@ def load_config() -> Config:
         if not api_key:
             break
             
-        workflows = {}
-        workflow_product = getenv(f"RUNNINGHUB_WORKFLOW_PRODUCT_{account_index}")
-        if workflow_product:
-            workflows["product"] = workflow_product
-            
-        if not workflows:
-            logger.warning(f"No workflows found for account {account_index}")
-            account_index += 1
-            continue
-            
-        max_jobs = int(getenv(f"RUNNINGHUB_MAX_JOBS_{account_index}", "5"))
-        
-        accounts.append(RunningHubAccount(
+        workflow_id = getenv(f"RUNNINGHUB_WORKFLOW_ID_{account_index}")
+        if not workflow_id:
+            logger.error(f"RUNNINGHUB_WORKFLOW_ID_{account_index} is not set")
+            break
+
+        try:
+            max_jobs = int(getenv(f"RUNNINGHUB_MAX_JOBS_{account_index}", "5"))
+            if max_jobs <= 0 or max_jobs > 5:
+                logger.warning(f"Invalid max_jobs value for account {account_index}, using default: 5")
+                max_jobs = 5
+        except ValueError:
+            logger.warning(f"Invalid max_jobs value for account {account_index}, using default: 5")
+            max_jobs = 5
+
+        account = RunningHubAccount(
             api_key=api_key,
-            workflows=workflows,
+            workflows={"product": workflow_id},
             max_jobs=max_jobs
-        ))
+        )
+        accounts.append(account)
         account_index += 1
-    
+
     if not accounts:
         logger.error("No RunningHub accounts configured")
         raise ValueError("No RunningHub accounts configured")
