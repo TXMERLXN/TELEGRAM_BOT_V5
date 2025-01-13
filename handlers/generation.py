@@ -1,12 +1,16 @@
-from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery, URLInputFile
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
 import logging
-import asyncio
 from typing import Optional
 
+from aiogram import Bot, F, Router
+from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.types import Message, FSInputFile, CallbackQuery, URLInputFile
+
+from config import config
+from services.account_manager import account_manager
 from services.runninghub import RunningHubAPI
+from services.task_queue import task_queue
+from states.generation import GenerationState
 from keyboards import get_main_menu_keyboard, get_back_keyboard, get_result_keyboard, get_cancel_keyboard
 from messages import (
     GENERATION_STARTED,

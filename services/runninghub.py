@@ -1,21 +1,18 @@
+import asyncio
 import json
 import logging
-import asyncio
-from typing import Optional, Dict, Union, Tuple, List
-from PIL import Image
-import io
-from config import load_config
-from .account_manager import account_manager, RunningHubAccount
-import os
-import aiohttp
-import aiofiles
 import time
-from tempfile import NamedTemporaryFile
+from io import BytesIO
+from typing import Optional, Tuple, Dict
+
+import aiohttp
+from aiogram import Bot
+from PIL import Image
+
+from config import config
+from services.account_manager import RunningHubAccount, account_manager
 
 logger = logging.getLogger(__name__)
-
-config = load_config()
-logger.setLevel(logging.DEBUG)
 logger.info("Initialized RunningHubAPI")
 
 class RunningHubAPI:
@@ -71,7 +68,7 @@ class RunningHubAPI:
         """Уменьшает размер изображения, сохраняя пропорции"""
         try:
             # Открываем изображение из bytes
-            image = Image.open(io.BytesIO(image_data))
+            image = Image.open(BytesIO(image_data))
             
             # Получаем размеры
             width, height = image.size
@@ -92,7 +89,7 @@ class RunningHubAPI:
             resized_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
             
             # Сохраняем в bytes
-            output = io.BytesIO()
+            output = BytesIO()
             resized_image.save(output, format='JPEG', quality=95)
             return output.getvalue()
             
@@ -104,7 +101,7 @@ class RunningHubAPI:
         """Добавляет уникальные пиксели в изображение"""
         try:
             # Открываем изображение
-            img = Image.open(io.BytesIO(image_data))
+            img = Image.open(BytesIO(image_data))
             
             # Конвертируем в RGBA если нужно
             if img.mode != 'RGBA':
@@ -125,7 +122,7 @@ class RunningHubAPI:
                     img.putpixel((width - 1 - i, height - 1), pixel)
             
             # Сохраняем изображение
-            output = io.BytesIO()
+            output = BytesIO()
             img.save(output, format='PNG')
             return output.getvalue()
             
