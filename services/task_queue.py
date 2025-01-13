@@ -14,6 +14,7 @@ class RunningHubAccount:
         self.workflow_id = workflow_id
         self.max_concurrent_tasks = max_concurrent_tasks
         self.current_tasks = 0
+        self.api: Optional[RunningHubAPI] = None
         
     @property
     def is_available(self) -> bool:
@@ -34,7 +35,7 @@ class TaskQueue:
     
     def __init__(self):
         self.bot = None
-        self.api_url = 'https://api.runninghub.com'  # Значение по умолчанию
+        self.api_url = None
         self.accounts: List[RunningHubAccount] = []
         self.apis: Dict[str, RunningHubAPI] = {}
         
@@ -42,6 +43,7 @@ class TaskQueue:
         """Настройка TaskQueue с ботом и URL API"""
         self.bot = bot
         self.api_url = api_url
+        logger.info(f"TaskQueue setup with API URL: {api_url}")
         
     def add_account(self, api_key: str, workflow_id: str, max_concurrent_tasks: int = 1):
         """Добавляет новый аккаунт в пул"""
@@ -50,6 +52,7 @@ class TaskQueue:
             
         account = RunningHubAccount(api_key, workflow_id, max_concurrent_tasks)
         self.accounts.append(account)
+        
         # Создаем API клиент для аккаунта
         api = RunningHubAPI(
             bot=self.bot,
@@ -57,7 +60,7 @@ class TaskQueue:
             api_key=api_key,
             workflow_id=workflow_id
         )
-        self.apis[api_key] = api
+        account.api = api
         logger.info(f"Added new RunningHub account with max tasks: {max_concurrent_tasks}")
         
     async def initialize(self):
@@ -65,13 +68,17 @@ class TaskQueue:
         if not self.bot:
             raise RuntimeError("TaskQueue not initialized. Call setup() first")
             
-        for api in self.apis.values():
-            await api.initialize()
+        for account in self.accounts:
+            if account.api:
+                await account.api.initialize()
+        logger.info(f"Initialized {len(self.accounts)} API clients")
             
     async def close(self):
         """Закрытие всех API клиентов"""
-        for api in self.apis.values():
-            await api.close()
+        for account in self.accounts:
+            if account.api:
+                await account.api.close()
+        logger.info("Closed all API clients")
             
     def get_available_account(self) -> Optional[RunningHubAccount]:
         """Возвращает доступный аккаунт с наименьшим количеством задач"""
@@ -86,17 +93,24 @@ class TaskQueue:
             raise RuntimeError("TaskQueue not initialized. Call setup() first")
             
         account = self.get_available_account()
-        if not account:
+        if not account or not account.api:
             logger.warning("No available accounts for processing")
             return None
             
         try:
             account.increment_tasks()
-            api = self.apis[account.api_key]
-            result = await api.process_photos(product_photo_id, background_photo_id, user_id)
+            logger.info(f"Processing photos with account {account.api_key[:8]}... (tasks: {account.current_tasks})")
+            result = await account.api.process_photos(product_photo_id, background_photo_id, user_id)
             return result
         finally:
             account.decrement_tasks()
+            logger.info(f"Finished processing with account {account.api_key[:8]}... (tasks: {account.current_tasks})")
+            
+    async def cancel_all_tasks(self):
+        """Отмена всех активных задач"""
+        logger.info("Canceling all active tasks")
+        for account in self.accounts:
+            account.current_tasks = 0
             
     @property
     def total_accounts(self) -> int:
