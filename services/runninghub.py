@@ -37,9 +37,16 @@ class RunningHubAPI:
             self.logger.info("Created new aiohttp session")
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        """Получение или создание сессии"""
-        if self._session is None or self._session.closed:
-            self.initialize_client()
+        """Создание или получение существующей сессии"""
+        if not hasattr(self, '_session') or self._session is None or self._session.closed:
+            # Настройка SSL контекста
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+            self._session = aiohttp.ClientSession(connector=connector)
+            self.logger.info("Created new aiohttp session")
         return self._session
 
     async def close_client(self) -> None:
