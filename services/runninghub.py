@@ -137,18 +137,10 @@ class RunningHubAPI:
         
         for attempt in range(self.max_retries):
             try:
-                # Добавляем timestamp к имени файла для уникальности
-                timestamp = int(time.time())
-                unique_filename = f"{timestamp}_{filename}"
-                logger.debug(f"Uploading file as: {unique_filename}")
-                
-                # Делаем изображение уникальным
-                unique_image_data = self._make_image_unique(image_data)
-                
                 # Создаем форму для загрузки
                 form = aiohttp.FormData()
                 form.add_field('apiKey', account.api_key)
-                form.add_field('file', unique_image_data, filename=unique_filename, content_type='image/png')
+                form.add_field('file', image_data, filename=filename, content_type='image/png')
                 
                 # Отправляем запрос
                 status, response_text = await self._make_request('post', url, data=form)
@@ -157,7 +149,7 @@ class RunningHubAPI:
                 if status == 200:
                     response = json.loads(response_text)
                     if response.get('code') == 0 and response.get('data', {}).get('fileName'):
-                        return response['data']['fileName']  # Возвращаем полный путь из ответа
+                        return response['data']['fileName']
                     
                 logger.error(f"Failed to upload image (attempt {attempt + 1}): {response_text}")
                 
@@ -298,60 +290,37 @@ class RunningHubAPI:
                 self.task_accounts.pop(task_id, None)
                 logger.info(f"Released account for task {task_id}")
 
-    async def create_task(self, product_filename: str, background_filename: str, workflow_id: str, account: RunningHubAccount) -> Optional[str]:
+    async def create_task(self, product_image: str, background_image: str, account: RunningHubAccount) -> Optional[dict]:
         """Создает задачу в RunningHub"""
-        url = f"{self.api_url}/task/openapi/create"
+        url = f"{self.api_url}/task/openapi/submit/workflow"
         
-        for attempt in range(self.max_retries):
-            logger.info(f"Creating task with uploaded files (attempt {attempt + 1}/{self.max_retries})")
-            
-            try:
-                # Убеждаемся что пути начинаются с api/
-                if not product_filename.startswith('api/'):
-                    product_filename = f'api/{product_filename}'
-                if not background_filename.startswith('api/'):
-                    background_filename = f'api/{background_filename}'
-
-                # Создаем задачу
-                payload = {
-                    "apiKey": account.api_key,
-                    "workflowId": workflow_id,
-                    "inputs": {
-                        "2": product_filename,  # Нода #2 для изображения товара
-                        "32": background_filename  # Нода #32 для изображения фона
-                    }
+        try:
+            # Создаем payload для задачи
+            payload = {
+                "apiKey": account.api_key,
+                "workflowId": account.workflow_id,
+                "inputs": {
+                    "product_image": product_image,  # Используем путь к файлу, возвращенный при загрузке
+                    "background_image": background_image,  # Используем путь к файлу, возвращенный при загрузке
+                    "timestamp": str(int(time.time()))  # Добавляем timestamp для уникальности
                 }
+            }
+            
+            # Отправляем запрос
+            status, response_text = await self._make_request('post', url, json=payload)
+            logger.debug(f"Create task response: {response_text}")
+            
+            if status == 200:
+                response = json.loads(response_text)
+                if response.get('code') == 0 and response.get('data'):
+                    logger.info(f"Created task {response['data']}")
+                    return response['data']
                 
-                status, response_text = await self._make_request('post', url, json=payload)
-                logger.debug(f"Create task response: {response_text}")
-                
-                if status == 200 and response_text:
-                    try:
-                        data = json.loads(response_text)
-                        if data.get("code") == 0 and data.get("data"):
-                            task_info = data["data"]
-                            task_id = task_info.get("taskId")
-                            if task_id:
-                                # Сохраняем аккаунт для этой задачи
-                                self.task_accounts[task_id] = account
-                                logger.info(f"Created task {task_info}")
-                                return task_id
-                            else:
-                                logger.error(f"No taskId in response: {task_info}")
-                        else:
-                            logger.error(f"API error: {data.get('msg', 'Unknown error')}")
-                    except json.JSONDecodeError as e:
-                        logger.error(f"Failed to parse task creation response: {e}")
-                        continue
-                
-                logger.error(f"Task creation API error: {status} - {response_text}")
-                await asyncio.sleep(self.retry_delay)
-                
-            except Exception as e:
-                logger.error(f"Error creating task: {str(e)}")
-                await asyncio.sleep(self.retry_delay)
+            logger.error(f"Failed to create task: {response_text}")
+            
+        except Exception as e:
+            logger.error(f"Error creating task: {str(e)}")
         
-        logger.error("Failed to create task")
         return None
 
     async def get_generation_status(self, task_id: str) -> tuple[str, Optional[str]]:
@@ -481,7 +450,6 @@ class RunningHubAPI:
                 task_id = await self.create_task(
                     product_filename,
                     background_filename,
-                    workflow_id,
                     account
                 )
                 
