@@ -308,11 +308,13 @@ class RunningHubAPI:
                 "apiKey": account.api_key,
                 "workflowId": workflow_id,
                 "inputs": {
-                    "product_image": product_image,  # Используем путь к файлу, возвращенный при загрузке
-                    "background_image": background_image,  # Используем путь к файлу, возвращенный при загрузке
-                    "timestamp": str(int(time.time()))  # Добавляем timestamp для уникальности
+                    "2": product_image,  # Нода #2 для изображения товара
+                    "32": background_image,  # Нода #32 для изображения фона
+                    "_timestamp": str(int(time.time()))  # Добавляем timestamp для уникальности
                 }
             }
+            
+            logger.debug(f"Creating task with payload: {payload}")
             
             # Отправляем запрос
             status, response_text = await self._make_request('post', url, json=payload)
