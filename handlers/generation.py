@@ -101,9 +101,9 @@ async def process_photos(message: Message, state: FSMContext) -> None:
     try:
         # Используем TaskQueue для обработки фотографий
         result_url = await task_queue.process_photos(
-            product_photo_id=product_photo_id,
-            background_photo_id=background_photo_id,
-            user_id=message.from_user.id
+            message.from_user.id,
+            product_photo_id,
+            background_photo_id
         )
         
         if result_url:
