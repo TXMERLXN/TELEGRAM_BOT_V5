@@ -331,16 +331,17 @@ class RunningHubAPI:
         if status == 200 and response_text:
             try:
                 data = json.loads(response_text)
-                if data.get("code") == 0:
-                    task_info = data.get("data", {})
+                if data.get("code") == 0 and data.get("data"):
+                    task_info = data["data"]
                     task_status = task_info.get("taskStatus", "").upper()
                     
                     if task_status == "SUCCEEDED":
-                        outputs = task_info.get("outputs", [])
-                        if outputs and isinstance(outputs, list):
-                            for output in outputs:
-                                if output.get("fileUrl"):
-                                    return "completed", output["fileUrl"]
+                        outputs = task_info.get("outputs", {})
+                        if outputs and isinstance(outputs, dict):
+                            if outputs.get("fileUrl"):
+                                return "completed", outputs["fileUrl"]
+                            elif outputs.get("text"):
+                                return "completed", outputs["text"]
                         logger.error(f"No output URL in completed task: {task_info}")
                         return "failed", None
                     elif task_status == "FAILED":
@@ -360,6 +361,9 @@ class RunningHubAPI:
                     return "failed", None
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse task status response: {e}")
+                return "failed", None
+            except Exception as e:
+                logger.error(f"Error checking task status: {e}")
                 return "failed", None
         return "failed", None
 
