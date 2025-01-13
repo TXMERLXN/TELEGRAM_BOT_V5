@@ -8,6 +8,9 @@ import io
 from config import load_config
 from .task_queue import task_queue
 from .account_manager import account_manager, RunningHubAccount
+import os
+import aiofiles
+import time
 
 config = load_config()
 logger = logging.getLogger(__name__)
@@ -291,76 +294,64 @@ class RunningHubAPI:
         return None
 
     async def generate_product_photo(self, user_id: int, product_file_id: str, background_file_id: str) -> Optional[str]:
-        """
-        Генерирует фотографию продукта с фоном
-        """
-        account = None
-        task_id = None
+        """Генерирует фото продукта с новым фоном"""
         try:
-            # Получаем доступный аккаунт для генерации
+            # Получаем свободный аккаунт
             account = await account_manager.get_available_account("product")
             if not account:
-                logger.error("No available RunningHub accounts")
+                logger.error("No available accounts")
                 return None
 
-            workflow_id = account.workflows["product"]
-            logger.info(f"Using RunningHub account with workflow_id: {workflow_id}")
+            # Получаем файлы
+            product_file = await self.bot.get_file(product_file_id)
+            background_file = await self.bot.get_file(background_file_id)
+            
+            # Скачиваем файлы во временные файлы
+            async with self.session.get(f"https://api.telegram.org/file/bot{self.bot_token}/{product_file.file_path}") as response:
+                product_data = await response.read()
+            async with self.session.get(f"https://api.telegram.org/file/bot{self.bot_token}/{background_file.file_path}") as response:
+                background_data = await response.read()
 
-            # Скачиваем изображения из Telegram
-            product_image = await self._download_telegram_file(product_file_id)
-            if not product_image:
-                logger.error("Failed to download product image")
-                return None
+            # Создаем временные файлы
+            product_filename = f"product_{user_id}_{int(time.time())}.png"
+            background_filename = f"background_{user_id}_{int(time.time())}.png"
+            
+            async with aiofiles.open(product_filename, 'wb') as f:
+                await f.write(product_data)
+            async with aiofiles.open(background_filename, 'wb') as f:
+                await f.write(background_data)
 
-            background_image = await self._download_telegram_file(background_file_id)
-            if not background_image:
-                logger.error("Failed to download background image")
-                return None
+            try:
+                # Создаем задачу
+                workflow_id = account.workflows.get("product")
+                if not workflow_id:
+                    logger.error("No workflow_id found for product type")
+                    return None
 
-            # Уменьшаем размер изображений
-            product_image = self._resize_image(product_image)
-            background_image = self._resize_image(background_image)
+                task_id = await self.create_task(product_filename, background_filename, workflow_id, account)
+                if not task_id:
+                    logger.error("Failed to create task")
+                    return None
 
-            # Загружаем изображения
-            product_filename = await self.upload_image(product_image, "product.jpg", account)
-            if not product_filename:
-                logger.error("Failed to upload product image")
-                return None
+                # Ожидаем результат
+                result_url = await self._wait_for_task_completion(task_id)
+                if not result_url:
+                    logger.error("Failed to get task result")
+                    return None
 
-            background_filename = await self.upload_image(background_image, "background.jpg", account)
-            if not background_filename:
-                logger.error("Failed to upload background image")
-                return None
+                return result_url
 
-            # Создаем задачу
-            task_id = await self.create_task(product_filename, background_filename, workflow_id, account)
-            if not task_id:
-                logger.error("Failed to create task")
-                return None
-
-            # Сохраняем аккаунт для этой задачи
-            self.task_accounts[task_id] = account
-
-            logger.info(f"Created task {task_id} for user {user_id}")
-
-            # Добавляем задачу в очередь
-            await task_queue.add_task(user_id, task_id)
-
-            # Ожидаем завершения задачи
-            result_url = await self._wait_for_task_completion(task_id)
-            if not result_url:
-                logger.error(f"Task {task_id} failed or timed out")
-                return None
-
-            return result_url
+            finally:
+                # Удаляем временные файлы
+                try:
+                    os.remove(product_filename)
+                    os.remove(background_filename)
+                except Exception as e:
+                    logger.error(f"Error removing temporary files: {str(e)}")
 
         except Exception as e:
-            logger.error(f"Error in generate_product_photo: {str(e)}")
+            logger.error(f"Error generating product photo: {str(e)}")
             return None
-        finally:
-            # Освобождаем аккаунт в случае ошибки
-            if account and (task_id is None or task_id not in self.task_accounts):
-                await account_manager.release_account(account)
 
     async def get_generation_status(self, task_id: str) -> tuple[str, Optional[str]]:
         """
