@@ -87,6 +87,26 @@ class RunningHubAPI:
             logger.error(f"Error resizing image: {str(e)}")
             return image_data
 
+    def _add_metadata_to_image(self, image_data: bytes, metadata: dict) -> bytes:
+        """Добавляет метаданные к изображению для уникальности"""
+        try:
+            # Открываем изображение
+            img = Image.open(io.BytesIO(image_data))
+            
+            # Добавляем timestamp в EXIF данные
+            if 'exif' not in img.info:
+                img.info['exif'] = {}
+            img.info['exif'].update(metadata)
+            
+            # Сохраняем изображение с метаданными
+            output = io.BytesIO()
+            img.save(output, format='PNG', exif=img.info['exif'])
+            return output.getvalue()
+            
+        except Exception as e:
+            logger.error(f"Error adding metadata to image: {str(e)}")
+            return image_data
+
     async def _make_request(self, method: str, url: str, **kwargs) -> Tuple[int, Optional[str]]:
         """Выполняет HTTP запрос с повторными попытками"""
         try:
@@ -105,13 +125,21 @@ class RunningHubAPI:
         for attempt in range(self.max_retries):
             try:
                 # Добавляем timestamp к имени файла для уникальности
-                unique_filename = f"{int(time.time())}_{filename}"
+                timestamp = int(time.time())
+                unique_filename = f"{timestamp}_{filename}"
                 logger.debug(f"Uploading file as: {unique_filename}")
+                
+                # Добавляем метаданные к изображению
+                metadata = {
+                    'timestamp': str(timestamp),
+                    'attempt': str(attempt)
+                }
+                unique_image_data = self._add_metadata_to_image(image_data, metadata)
                 
                 # Создаем форму для загрузки
                 form = aiohttp.FormData()
                 form.add_field('apiKey', account.api_key)
-                form.add_field('file', image_data, filename=unique_filename, content_type='image/png')
+                form.add_field('file', unique_image_data, filename=unique_filename, content_type='image/png')
                 
                 # Отправляем запрос
                 status, response_text = await self._make_request('post', url, data=form)
