@@ -11,7 +11,7 @@ from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_applicati
 from aiohttp import web
 
 from config import config
-from handlers import generation
+from handlers import base, generation
 from services.task_queue import task_queue
 
 # Настройка логирования
@@ -71,7 +71,8 @@ def main():
     dp = Dispatcher()
     
     # Регистрация хэндлеров
-    dp.include_router(generation.router)
+    dp.include_router(base.router)  # Базовые команды
+    dp.include_router(generation.router)  # Генерация изображений
     
     # Регистрация обработчиков запуска и завершения
     dp.startup.register(on_startup)
