@@ -23,6 +23,7 @@ class RunningHub:
     retry_delay: int = 5  # Задержка между попытками в секундах
     max_retries: int = 3  # Максимальное количество попыток для HTTP запросов
     max_concurrent_tasks: int = 15  # Максимальное количество одновременных задач (5 задач * 3 аккаунта)
+    polling_interval: int = 5  # Интервал проверки статуса задачи в секундах
 
 @dataclass
 class Config:
