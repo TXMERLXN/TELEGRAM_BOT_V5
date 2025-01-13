@@ -87,24 +87,37 @@ class RunningHubAPI:
             logger.error(f"Error resizing image: {str(e)}")
             return image_data
 
-    def _add_metadata_to_image(self, image_data: bytes, metadata: dict) -> bytes:
-        """Добавляет метаданные к изображению для уникальности"""
+    def _make_image_unique(self, image_data: bytes) -> bytes:
+        """Добавляет уникальные пиксели в изображение"""
         try:
             # Открываем изображение
             img = Image.open(io.BytesIO(image_data))
             
-            # Добавляем timestamp в EXIF данные
-            if 'exif' not in img.info:
-                img.info['exif'] = {}
-            img.info['exif'].update(metadata)
+            # Конвертируем в RGBA если нужно
+            if img.mode != 'RGBA':
+                img = img.convert('RGBA')
             
-            # Сохраняем изображение с метаданными
+            # Получаем размеры
+            width, height = img.size
+            
+            # Добавляем уникальные пиксели в правый нижний угол
+            timestamp = int(time.time())
+            pixels = [
+                (timestamp & 0xFF, (timestamp >> 8) & 0xFF, (timestamp >> 16) & 0xFF, 255),
+                ((timestamp >> 24) & 0xFF, 0, 0, 255),
+            ]
+            
+            for i, pixel in enumerate(pixels):
+                if i < width:
+                    img.putpixel((width - 1 - i, height - 1), pixel)
+            
+            # Сохраняем изображение
             output = io.BytesIO()
-            img.save(output, format='PNG', exif=img.info['exif'])
+            img.save(output, format='PNG')
             return output.getvalue()
             
         except Exception as e:
-            logger.error(f"Error adding metadata to image: {str(e)}")
+            logger.error(f"Error making image unique: {str(e)}")
             return image_data
 
     async def _make_request(self, method: str, url: str, **kwargs) -> Tuple[int, Optional[str]]:
@@ -129,12 +142,8 @@ class RunningHubAPI:
                 unique_filename = f"{timestamp}_{filename}"
                 logger.debug(f"Uploading file as: {unique_filename}")
                 
-                # Добавляем метаданные к изображению
-                metadata = {
-                    'timestamp': str(timestamp),
-                    'attempt': str(attempt)
-                }
-                unique_image_data = self._add_metadata_to_image(image_data, metadata)
+                # Делаем изображение уникальным
+                unique_image_data = self._make_image_unique(image_data)
                 
                 # Создаем форму для загрузки
                 form = aiohttp.FormData()
