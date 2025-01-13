@@ -167,6 +167,7 @@ class RunningHubAPI:
             logger.error(f"No account found for task {task_id}")
             return None
 
+        result_url = None
         try:
             for attempt in range(max_attempts):
                 logger.info(f"Getting task result for task {task_id} (attempt {attempt + 1}/{max_attempts})")
@@ -192,10 +193,12 @@ class RunningHubAPI:
                                 result = data["data"][0]
                                 if result.get("fileUrl"):
                                     logger.info(f"Task {task_id} completed successfully")
-                                    return result["fileUrl"]
+                                    result_url = result["fileUrl"]
+                                    break
                                 elif result.get("text"):
                                     logger.info(f"Task {task_id} completed successfully")
-                                    return result["text"]
+                                    result_url = result["text"]
+                                    break
                                 else:
                                     logger.error("Task completed but no result found")
                                     break
@@ -222,8 +225,11 @@ class RunningHubAPI:
                     logger.error(f"Error while waiting for task completion: {str(e)}")
                     break
 
-            logger.error(f"Task {task_id} did not complete within {max_attempts * delay} seconds")
-            return None
+            if not result_url:
+                logger.error(f"Task {task_id} did not complete within {max_attempts * delay} seconds")
+                return None
+
+            return result_url
             
         finally:
             # Освобождаем аккаунт и удаляем задачу

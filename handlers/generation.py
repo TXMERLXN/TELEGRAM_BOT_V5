@@ -1,5 +1,5 @@
 from aiogram import Router, F
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, URLInputFile
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 import logging
@@ -196,18 +196,20 @@ async def handle_photo(message: Message, state: FSMContext) -> None:
         
         # Начинаем генерацию
         try:
-            result = await runninghub.generate_product_photo(
+            await message.answer("Генерирую изображение, это может занять некоторое время...")
+            
+            result_url = await runninghub.generate_product_photo(
                 message.from_user.id,
                 product_file_id,
                 background_file_id
             )
             
-            if not result:
+            if not result_url:
                 raise Exception("Failed to generate image")
                 
             # Отправляем результат
             await message.answer_photo(
-                result,
+                URLInputFile(result_url),
                 caption="Готово! Вот ваше изображение"
             )
             
