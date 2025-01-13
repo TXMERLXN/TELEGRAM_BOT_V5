@@ -36,15 +36,10 @@ class RunningHubAPI:
         
     def _create_connector(self) -> aiohttp.TCPConnector:
         """Создание TCP коннектора с настроенным SSL"""
-        ssl_context = ssl.create_default_context()
-        ssl_context.check_hostname = False
-        ssl_context.verify_mode = ssl.CERT_NONE
-        
         return aiohttp.TCPConnector(
-            ssl=ssl_context,
+            verify_ssl=False,
             force_close=True,
             enable_cleanup_closed=True,
-            verify_ssl=False,
             ttl_dns_cache=300
         )
         
