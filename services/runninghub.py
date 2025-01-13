@@ -134,23 +134,56 @@ class RunningHubAPI:
             
             max_attempts = 60  # Максимальное количество попыток (5 минут при задержке в 5 секунд)
             for attempt in range(max_attempts):
-                async with self.get_session().post(
-                    f"{self.api_url}/task/openapi/outputs",
-                    json=data,
-                    headers=headers,
-                    timeout=30
-                ) as response:
-                    result = await response.json()
-                    logger.debug(f"Get result response: {result}")
-                    
-                    if response.status == 200 and result.get('code') == 0:
-                        if result['data']:  # Если есть результат
-                            file_url = result['data'][0]['fileUrl']
-                            logger.info(f"Task completed successfully: {file_url}")
-                            return file_url
+                try:
+                    async with self.get_session().post(
+                        f"{self.api_url}/task/openapi/outputs",
+                        json=data,
+                        headers=headers,
+                        timeout=30
+                    ) as response:
+                        response_text = await response.text()
+                        logger.debug(f"Get result response [{attempt+1}/{max_attempts}]: {response_text}")
+                        
+                        if response.status != 200:
+                            logger.error(f"Error response from API: Status {response.status}, Body: {response_text}")
+                            await asyncio.sleep(5)
+                            continue
                             
-                    # Если результат еще не готов, ждем и пробуем снова
+                        try:
+                            result = await response.json()
+                        except Exception as e:
+                            logger.error(f"Failed to parse JSON response: {response_text}")
+                            await asyncio.sleep(5)
+                            continue
+                            
+                        if result.get('code') != 0:
+                            error_msg = result.get('msg', 'Unknown error')
+                            logger.error(f"API error: {error_msg}")
+                            await asyncio.sleep(5)
+                            continue
+                            
+                        if not result.get('data'):
+                            logger.debug(f"No data in response yet, waiting... [{attempt+1}/{max_attempts}]")
+                            await asyncio.sleep(5)
+                            continue
+                            
+                        file_url = result['data'][0].get('fileUrl')
+                        if not file_url:
+                            logger.error(f"No fileUrl in response data: {result}")
+                            await asyncio.sleep(5)
+                            continue
+                            
+                        logger.info(f"Task completed successfully: {file_url}")
+                        return file_url
+                        
+                except asyncio.TimeoutError:
+                    logger.warning(f"Timeout on attempt {attempt+1}/{max_attempts}, retrying...")
                     await asyncio.sleep(5)
+                    continue
+                except Exception as e:
+                    logger.error(f"Error on attempt {attempt+1}/{max_attempts}: {str(e)}")
+                    await asyncio.sleep(5)
+                    continue
                     
             raise RuntimeError(f"Timeout waiting for task result after {max_attempts} attempts")
             
