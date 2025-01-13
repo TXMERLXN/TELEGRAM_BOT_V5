@@ -117,9 +117,16 @@ class TaskQueue:
                 account.increment_tasks()
                 logger.info(f"Processing photos with account {account.api_key[:8]}... (tasks: {account.current_tasks})")
                 
+                # Получаем URL файлов
+                product_file = await self.bot.get_file(product_photo_id)
+                background_file = await self.bot.get_file(background_photo_id)
+                
+                product_url = f"https://api.telegram.org/file/bot{self.bot.token}/{product_file.file_path}"
+                background_url = f"https://api.telegram.org/file/bot{self.bot.token}/{background_file.file_path}"
+                
                 result = await account.api.process_photos(
-                    product_photo_id=product_photo_id,
-                    background_photo_id=background_photo_id,
+                    product_photo=product_url,
+                    background_photo=background_url,
                     user_id=user_id
                 )
                 
