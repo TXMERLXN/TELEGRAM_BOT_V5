@@ -40,7 +40,16 @@ async def main():
     logger.debug(f"Loaded config: {config}")
     logger.info("====== Starting bot ======")
     logger.info(f"Bot token length: {len(config.tg_bot.token)}")
-    logger.info(f"RunningHub API key length: {len(config.runninghub.api_key)}")
+    
+    # Инициализируем аккаунты RunningHub
+    from services.account_manager import account_manager
+    for acc in config.runninghub.accounts:
+        account_manager.add_account(
+            api_key=acc.api_key,
+            workflows=acc.workflows,
+            max_jobs=acc.max_jobs
+        )
+    logger.info(f"Initialized {len(config.runninghub.accounts)} RunningHub accounts")
     logger.info("==========================")
 
     # Инициализируем бота и диспетчер

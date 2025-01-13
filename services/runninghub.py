@@ -5,35 +5,40 @@ import asyncio
 from typing import Optional
 from config import load_config
 from .task_queue import task_queue
+from .account_manager import account_manager
 
 config = load_config()
 logger = logging.getLogger(__name__)
 
 class RunningHubAPI:
     def __init__(self):
-        self.api_key = config.runninghub.api_key
         self.headers = {
             "Content-Type": "application/json"
         }
-        self.workflow_id = "1871659613585305601"
         self.api_url = "https://www.runninghub.ai"
         # Таймауты для HTTP-запросов
         self.timeout = aiohttp.ClientTimeout(
-            total=600,  # Общий таймаут 10 минут
+            total=config.runninghub.task_timeout,
             connect=60,  # Таймаут на подключение 1 минута
             sock_read=300  # Таймаут на чтение 5 минут
         )
-        self.max_retries = 5
-        self.retry_delay = 10
-        if not self.api_key:
-            logger.error("RunningHubAPI initialization failed: API key is not set")
-            raise ValueError("RUNNINGHUB_API_KEY environment variable is not set")
-        logger.info(f"Initialized RunningHubAPI with API key: {self.api_key[:8]}...")
+        self.max_retries = config.runninghub.max_retries
+        self.retry_delay = config.runninghub.retry_delay
+        self.current_account = None
+        logger.info("Initialized RunningHubAPI")
 
     async def _make_request(self, method: str, url: str, return_bytes: bool = False, **kwargs) -> tuple:
         """
         Выполняет HTTP-запрос с повторными попытками
         """
+        if not self.current_account:
+            raise ValueError("No RunningHub account selected")
+            
+        if 'headers' not in kwargs:
+            kwargs['headers'] = {}
+        kwargs['headers'].update(self.headers)
+        kwargs['headers']['Authorization'] = f'Bearer {self.current_account.api_key}'
+
         for attempt in range(self.max_retries):
             try:
                 async with aiohttp.ClientSession(timeout=self.timeout) as session:
@@ -49,12 +54,11 @@ class RunningHubAPI:
                     await asyncio.sleep(self.retry_delay)
                 continue
             except Exception as e:
-                logger.error(f"Request error on attempt {attempt + 1}/{self.max_retries}: {str(e)}")
+                logger.error(f"Request failed on attempt {attempt + 1}/{self.max_retries}: {str(e)}")
                 if attempt < self.max_retries - 1:
                     await asyncio.sleep(self.retry_delay)
                 continue
-        
-        return None, None
+        raise Exception(f"Failed after {self.max_retries} attempts")
 
     async def upload_image(self, image_data: bytes, filename: str) -> Optional[str]:
         """Загружает изображение на RunningHub"""
@@ -63,7 +67,7 @@ class RunningHubAPI:
         try:
             # Создаем multipart-данные для загрузки файла
             form = aiohttp.FormData()
-            form.add_field('apiKey', self.api_key)
+            form.add_field('apiKey', self.current_account.api_key)
             form.add_field(
                 'file',
                 image_data,
@@ -136,7 +140,7 @@ class RunningHubAPI:
         url = f"{self.api_url}/task/openapi/outputs"
         payload = {
             "taskId": task_id,
-            "apiKey": self.api_key
+            "apiKey": self.current_account.api_key
         }
 
         for attempt in range(max_attempts):
@@ -190,7 +194,7 @@ class RunningHubAPI:
             logger.info(f"Creating task with uploaded files (attempt {attempt}/{self.max_retries})")
             
             data = {
-                "apiKey": self.api_key,
+                "apiKey": self.current_account.api_key,
                 "workflowId": workflow_id,
                 "variables": {
                     "product_image": product_filename,
@@ -235,32 +239,81 @@ class RunningHubAPI:
         """
         Генерирует фотографию продукта с фоном
         """
-        # Загружаем файлы на RunningHub
-        product_filename = await self.upload_image(product_image, "product.jpg")
-        background_filename = await self.upload_image(background_image, "background.jpg")
-        
-        if not product_filename or not background_filename:
-            logger.error("Failed to upload images")
-            return None
+        try:
+            # Получаем доступный аккаунт для генерации
+            self.current_account = await account_manager.get_available_account("product")
+            if not self.current_account:
+                logger.error("No available RunningHub accounts")
+                return None
 
-        # Создаем задачу с загруженными файлами
-        task_id = await self.create_task(product_filename, background_filename, self.workflow_id)
-        if not task_id:
-            logger.error("Failed to create task")
-            return None
-        
-        # Добавляем задачу в очередь
-        await task_queue.add_task(user_id, task_id)
-        
-        # Запускаем обработку задачи
-        asyncio.create_task(
-            task_queue.process_task(
-                task_id,
-                lambda tid: self._wait_for_task_completion(tid)
+            workflow_id = self.current_account.workflows["product"]
+            logger.info(f"Using RunningHub account with workflow_id: {workflow_id}")
+
+            # Создаем задачу
+            task_data = {
+                "workflow_id": workflow_id,
+                "inputs": {
+                    "product_image": product_image,
+                    "background_image": background_image
+                }
+            }
+
+            status, response = await self._make_request(
+                "post",
+                f"{self.api_url}/api/v1/task/create",
+                json=task_data
             )
-        )
-        
-        return task_id
+
+            if status != 200:
+                logger.error(f"Failed to create task: {response}")
+                return None
+
+            task_id = json.loads(response).get("task_id")
+            if not task_id:
+                logger.error("No task_id in response")
+                return None
+
+            logger.info(f"Created task {task_id} for user {user_id}")
+
+            # Ожидаем завершения задачи
+            while True:
+                status, response = await self._make_request(
+                    "get",
+                    f"{self.api_url}/api/v1/task/{task_id}/status"
+                )
+
+                if status != 200:
+                    logger.error(f"Failed to get task status: {response}")
+                    return None
+
+                task_status = json.loads(response)
+                if task_status.get("status") == "completed":
+                    # Получаем результат
+                    status, response = await self._make_request(
+                        "get",
+                        f"{self.api_url}/api/v1/task/{task_id}/result",
+                        return_bytes=True
+                    )
+
+                    if status != 200:
+                        logger.error(f"Failed to get task result: {response}")
+                        return None
+
+                    return response
+
+                elif task_status.get("status") in ["failed", "cancelled"]:
+                    logger.error(f"Task failed or cancelled: {task_status}")
+                    return None
+
+                await asyncio.sleep(2)
+
+        except Exception as e:
+            logger.error(f"Error in generate_product_photo: {str(e)}")
+            return None
+        finally:
+            if self.current_account:
+                await account_manager.release_account(self.current_account)
+                self.current_account = None
 
     async def get_generation_status(self, task_id: str) -> tuple[str, Optional[str]]:
         """
@@ -270,7 +323,7 @@ class RunningHubAPI:
         url = f"{self.api_url}/task/openapi/outputs"
         payload = {
             "taskId": task_id,
-            "apiKey": self.api_key
+            "apiKey": self.current_account.api_key
         }
 
         status, response_text = await self._make_request('post', url, json=payload)
