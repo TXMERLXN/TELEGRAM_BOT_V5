@@ -66,6 +66,9 @@ async def main():
     finally:
         # Освобождаем все аккаунты при остановке
         await account_manager.release_all_accounts()
+        # Закрываем сессии
+        if generation.runninghub:
+            await generation.runninghub.close()
         if 'bot' in locals():
             await bot.session.close()
 

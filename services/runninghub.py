@@ -22,7 +22,7 @@ class RunningHubAPI:
         }
         self.api_url = config.runninghub.api_url
         self.bot_token = config.tg_bot.token
-        self.session = aiohttp.ClientSession()
+        self.session = None
         # Таймауты для HTTP-запросов
         self.timeout = aiohttp.ClientTimeout(
             total=config.runninghub.task_timeout,
@@ -36,6 +36,17 @@ class RunningHubAPI:
         self.task_accounts = {}
         self.bot = bot
         logger.info("Initialized RunningHubAPI")
+
+    async def initialize(self):
+        """Инициализация сессии"""
+        if not self.session:
+            self.session = aiohttp.ClientSession()
+
+    async def close(self):
+        """Закрытие сессии"""
+        if self.session:
+            await self.session.close()
+            self.session = None
 
     def _resize_image(self, image_data: bytes) -> bytes:
         """Уменьшает размер изображения, сохраняя пропорции"""
@@ -72,6 +83,9 @@ class RunningHubAPI:
 
     async def _make_request(self, method: str, url: str, **kwargs) -> tuple[int, Optional[str]]:
         """Делает HTTP запрос с повторными попытками"""
+        if not self.session:
+            await self.initialize()
+            
         try:
             async with self.session.request(method, url, **kwargs) as response:
                 return response.status, await response.text()
@@ -239,12 +253,13 @@ class RunningHubAPI:
             logger.info(f"Creating task with uploaded files (attempt {attempt + 1}/{self.max_retries})")
             
             try:
+                # Создаем задачу
                 payload = {
                     "apiKey": account.api_key,
                     "workflowId": workflow_id,
                     "inputs": {
-                        "product": product_filename,
-                        "background": background_filename
+                        "product": str(product_filename),
+                        "background": str(background_filename)
                     }
                 }
                 
@@ -254,7 +269,7 @@ class RunningHubAPI:
                     try:
                         data = json.loads(response_text)
                         if data.get("code") == 0 and data.get("data"):
-                            task_id = data["data"]
+                            task_id = str(data["data"])
                             # Сохраняем аккаунт для этой задачи
                             self.task_accounts[task_id] = account
                             logger.info(f"Created task {task_id}")
@@ -270,6 +285,7 @@ class RunningHubAPI:
                 logger.error(f"Error creating task: {str(e)}")
                 await asyncio.sleep(self.retry_delay)
         
+        logger.error("Failed to create task")
         return None
 
     async def get_generation_status(self, task_id: str) -> tuple[str, Optional[str]]:
