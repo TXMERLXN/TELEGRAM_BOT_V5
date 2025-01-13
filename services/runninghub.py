@@ -342,13 +342,13 @@ class RunningHubAPI:
         """Генерирует фото продукта с новым фоном"""
         try:
             # Получаем аккаунт для генерации
-            account = await account_manager.get_account('product')
+            account = await account_manager.get_available_account('product')
             if not account:
                 logger.error("No available accounts for product generation")
                 return None
 
             # Получаем workflow_id для этого аккаунта
-            workflow_id = account.get_workflow('product')
+            workflow_id = account.workflows.get('product')
             if not workflow_id:
                 logger.error("No workflow_id found for product generation")
                 await account_manager.release_account(account)
