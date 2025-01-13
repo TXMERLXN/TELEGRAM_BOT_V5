@@ -198,48 +198,43 @@ class RunningHubAPI:
                     ) as response:
                         response_text = await response.text()
                         logger.debug(f"API response: {response.status} - {response_text}")
-                        logger.debug(f"Response headers: {dict(response.headers)}")
-
+                        
                         try:
                             result = await response.json()
                         except Exception as e:
                             logger.error(f"Failed to parse JSON response: {response_text}")
-                            logger.error(f"Parse error: {str(e)}")
                             if attempt < self.max_retries - 1:
                                 await asyncio.sleep(self.retry_delay)
                                 continue
-                            return None
+                            raise RuntimeError(f"Failed to parse API response: {str(e)}")
 
                         if response.status == 200:
                             task_id = result.get('task_id')
                             if not task_id:
-                                logger.error(f"No task_id in response: {result}")
-                                return None
+                                raise RuntimeError(f"No task_id in successful response: {result}")
                             logger.info(f"Successfully created task: {task_id}")
                             return task_id
                         else:
                             error_code = result.get('code')
                             error_msg = result.get('msg')
                             error_data = result.get('data')
-                            logger.error(f"API Error - Status: {response.status}, Code: {error_code}, Message: {error_msg}, Data: {error_data}")
+                            error_text = f"API Error - Status: {response.status}, Code: {error_code}, Message: {error_msg}, Data: {error_data}"
+                            logger.error(error_text)
                             
                             if response.status == 500 and attempt < self.max_retries - 1:
                                 logger.info(f"Retrying after server error (attempt {attempt + 1})")
                                 await asyncio.sleep(self.retry_delay)
                                 continue
-                            return None
+                            raise RuntimeError(error_text)
 
             except Exception as e:
-                logger.error(f"Error creating task: {str(e)}")
-                if isinstance(e, aiohttp.ClientError):
-                    logger.error(f"Client error details: {str(e.__dict__)}")
+                logger.error(f"Error in create_task: {str(e)}")
                 if attempt < self.max_retries - 1:
                     await asyncio.sleep(self.retry_delay)
                     continue
-                return None
+                raise  # Пробрасываем исключение наверх после всех попыток
 
-        logger.error("All retry attempts failed")
-        return None
+        raise RuntimeError("All retry attempts failed")
 
     async def _wait_for_result(self, task_id: str) -> Optional[str]:
         """Ожидание результата генерации"""
