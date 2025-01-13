@@ -167,6 +167,59 @@ async def generate_photo(
         )
         return None
 
+@router.message(F.photo)
+async def handle_photo(message: Message, state: FSMContext) -> None:
+    """
+    Обработчик получения фотографий от пользователя
+    """
+    current_state = await state.get_state()
+    
+    if current_state is None:
+        # Начинаем процесс генерации
+        await message.answer("Отлично! Теперь отправьте фотографию желаемого фона")
+        await state.set_state(GenerationState.waiting_for_background_image)
+        await state.update_data(product_file_id=message.photo[-1].file_id)
+        logger.info("Начало генерации фото продукта")
+        
+    elif current_state == GenerationState.waiting_for_background_image:
+        # Получаем file_id сохраненной фотографии продукта
+        user_data = await state.get_data()
+        product_file_id = user_data.get("product_file_id")
+        
+        if not product_file_id:
+            await message.answer("Произошла ошибка. Пожалуйста, начните сначала")
+            await state.clear()
+            return
+            
+        logger.info("Получена фотография фона")
+        background_file_id = message.photo[-1].file_id
+        
+        # Начинаем генерацию
+        try:
+            result = await runninghub.generate_product_photo(
+                message.from_user.id,
+                product_file_id,
+                background_file_id
+            )
+            
+            if not result:
+                raise Exception("Failed to generate image")
+                
+            # Отправляем результат
+            await message.answer_photo(
+                result,
+                caption="Готово! Вот ваше изображение"
+            )
+            
+        except Exception as e:
+            logger.error(f"Ошибка генерации: {str(e)}")
+            await message.answer(
+                "Произошла ошибка при генерации изображения. Пожалуйста, попробуйте еще раз"
+            )
+        finally:
+            await state.clear()
+            logger.info("Получена фотография продукта")
+
 @router.callback_query(F.data == "back_to_main", GenerationState.waiting_for_product_image)
 @router.callback_query(F.data == "back_to_main", GenerationState.waiting_for_background_image)
 async def back_to_main_during_upload(callback: CallbackQuery, state: FSMContext):

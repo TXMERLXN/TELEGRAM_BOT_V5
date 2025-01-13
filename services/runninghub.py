@@ -192,13 +192,9 @@ class RunningHubAPI:
                                 result = data["data"][0]
                                 if result.get("fileUrl"):
                                     logger.info(f"Task {task_id} completed successfully")
-                                    await account_manager.release_account(account)
-                                    self.task_accounts.pop(task_id, None)
                                     return result["fileUrl"]
                                 elif result.get("text"):
                                     logger.info(f"Task {task_id} completed successfully")
-                                    await account_manager.release_account(account)
-                                    self.task_accounts.pop(task_id, None)
                                     return result["text"]
                                 else:
                                     logger.error("Task completed but no result found")
@@ -230,7 +226,7 @@ class RunningHubAPI:
             return None
             
         finally:
-            # Освобождаем аккаунт только если он еще не был освобожден
+            # Освобождаем аккаунт и удаляем задачу
             if task_id in self.task_accounts:
                 await account_manager.release_account(account)
                 self.task_accounts.pop(task_id, None)
@@ -289,6 +285,7 @@ class RunningHubAPI:
         Генерирует фотографию продукта с фоном
         """
         account = None
+        task_id = None
         try:
             # Получаем доступный аккаунт для генерации
             account = await account_manager.get_available_account("product")
@@ -303,13 +300,11 @@ class RunningHubAPI:
             product_image = await self._download_telegram_file(product_file_id)
             if not product_image:
                 logger.error("Failed to download product image")
-                await account_manager.release_account(account)
                 return None
 
             background_image = await self._download_telegram_file(background_file_id)
             if not background_image:
                 logger.error("Failed to download background image")
-                await account_manager.release_account(account)
                 return None
 
             # Уменьшаем размер изображений
@@ -320,20 +315,17 @@ class RunningHubAPI:
             product_filename = await self.upload_image(product_image, "product.jpg", account)
             if not product_filename:
                 logger.error("Failed to upload product image")
-                await account_manager.release_account(account)
                 return None
 
             background_filename = await self.upload_image(background_image, "background.jpg", account)
             if not background_filename:
                 logger.error("Failed to upload background image")
-                await account_manager.release_account(account)
                 return None
 
             # Создаем задачу
             task_id = await self.create_task(product_filename, background_filename, workflow_id, account)
             if not task_id:
                 logger.error("Failed to create task")
-                await account_manager.release_account(account)
                 return None
 
             # Сохраняем аккаунт для этой задачи
@@ -354,9 +346,11 @@ class RunningHubAPI:
 
         except Exception as e:
             logger.error(f"Error in generate_product_photo: {str(e)}")
-            if account:
-                await account_manager.release_account(account)
             return None
+        finally:
+            # Освобождаем аккаунт в случае ошибки
+            if account and (task_id is None or task_id not in self.task_accounts):
+                await account_manager.release_account(account)
 
     async def get_generation_status(self, task_id: str) -> tuple[str, Optional[str]]:
         """
