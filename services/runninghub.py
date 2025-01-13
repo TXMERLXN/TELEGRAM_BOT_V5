@@ -129,18 +129,40 @@ class RunningHubAPI:
     async def create_task(self, product_path: str, background_path: str) -> Optional[str]:
         """Создание задачи в RunningHub"""
         try:
+            # Создаем form-data с файлами и дополнительными параметрами
             data = aiohttp.FormData()
+            
+            # Добавляем файлы
+            with open(product_path, 'rb') as f:
+                product_data = f.read()
+            with open(background_path, 'rb') as f:
+                background_data = f.read()
+                
             data.add_field('product_image',
-                          open(product_path, 'rb'),
+                          product_data,
                           filename='product.jpg',
                           content_type='image/jpeg')
             data.add_field('background_image',
-                          open(background_path, 'rb'),
+                          background_data,
                           filename='background.jpg',
                           content_type='image/jpeg')
             
+            # Добавляем API ключ и другие параметры
+            data.add_field('api_key', os.getenv('RUNNINGHUB_API_KEY', ''))
+            data.add_field('workflow_id', os.getenv('RUNNINGHUB_WORKFLOW_PRODUCT', ''))
+            
             logger.debug(f"Sending POST request to {self.api_url}/tasks")
-            async with self.session.post(f"{self.api_url}/tasks", data=data) as response:
+            headers = {
+                'Accept': 'application/json',
+                'X-API-Key': os.getenv('RUNNINGHUB_API_KEY', '')
+            }
+            
+            async with self.session.post(
+                f"{self.api_url}/tasks",
+                data=data,
+                headers=headers,
+                timeout=30
+            ) as response:
                 response_text = await response.text()
                 logger.debug(f"API response: {response.status} - {response_text}")
                 
@@ -170,7 +192,16 @@ class RunningHubAPI:
                 
             try:
                 logger.debug(f"Checking status for task {task_id}")
-                async with self.session.get(f"{self.api_url}/tasks/{task_id}") as response:
+                headers = {
+                    'Accept': 'application/json',
+                    'X-API-Key': os.getenv('RUNNINGHUB_API_KEY', '')
+                }
+                
+                async with self.session.get(
+                    f"{self.api_url}/tasks/{task_id}",
+                    headers=headers,
+                    timeout=10
+                ) as response:
                     response_text = await response.text()
                     logger.debug(f"Status check response: {response.status} - {response_text}")
                     
