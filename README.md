@@ -114,6 +114,108 @@ Telegram бот для генерации профессиональных фо�
 - При получении сообщения о постановке в очередь - задача будет обработана следующим свободным аккаунтом
 - Можно отменить задачу, находящуюся в очереди
 
+## RunningHub API Documentation
+
+### API Endpoints
+
+#### Create Task
+- **URL**: `/task/openapi/create`
+- **Method**: POST
+- **Parameters**:
+  ```json
+  {
+    "apiKey": "your_api_key",
+    "workflowId": "workflow_id",
+    "inputs": {
+      "product": "path/to/product.png",
+      "background": "path/to/background.png"
+    }
+  }
+  ```
+- **Response**:
+  ```json
+  {
+    "code": 0,
+    "msg": "success",
+    "data": {
+      "taskId": "task_id",
+      "clientId": "client_id",
+      "taskStatus": "RUNNING",
+      "promptTips": {
+        "node_errors": {}
+      }
+    }
+  }
+  ```
+
+#### Query Task Status
+- **URL**: `/task/openapi/query`
+- **Method**: POST
+- **Parameters**:
+  ```json
+  {
+    "taskId": "task_id",
+    "apiKey": "your_api_key"
+  }
+  ```
+- **Response**:
+  ```json
+  {
+    "code": 0,
+    "msg": "success",
+    "data": {
+      "taskId": "task_id",
+      "taskStatus": "SUCCEEDED|FAILED|RUNNING|PENDING|QUEUED",
+      "promptTips": {
+        "node_errors": {}
+      }
+    }
+  }
+  ```
+
+#### Get Task Outputs
+- **URL**: `/task/openapi/outputs`
+- **Method**: POST
+- **Parameters**:
+  ```json
+  {
+    "taskId": "task_id",
+    "apiKey": "your_api_key"
+  }
+  ```
+- **Response**:
+  ```json
+  {
+    "code": 0,
+    "msg": "success",
+    "data": [
+      {
+        "url": "https://output.url/image.png",
+        "type": "image"
+      }
+    ]
+  }
+  ```
+
+### Error Codes
+- `0`: Success
+- `804`: Task is running (APIKEY_TASK_IS_RUNNING)
+- `805`: Task is in queue (APIKEY_TASK_QUEUE)
+
+### Task Status
+- `SUCCEEDED`: Task completed successfully
+- `FAILED`: Task failed
+- `RUNNING`: Task is currently running
+- `PENDING`: Task is pending
+- `QUEUED`: Task is in queue
+
+### Notes
+1. All requests require an API key
+2. File paths should be absolute paths on the server
+3. Check task status periodically until it's SUCCEEDED or FAILED
+4. Get outputs only when task status is SUCCEEDED
+5. Handle rate limits and concurrent tasks per account
+
 ## Переменные окружения
 
 Для работы бота необходимы следующие переменные окружения:
