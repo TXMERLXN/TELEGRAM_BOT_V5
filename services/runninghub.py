@@ -102,36 +102,40 @@ class RunningHubAPI:
             return 500, None
 
     async def upload_image(self, image_data: bytes, filename: str, account: RunningHubAccount) -> Optional[str]:
-        """Загружает изображение на RunningHub"""
+        """Загружает изображение в RunningHub"""
         url = f"{self.api_url}/task/openapi/upload"
         
-        try:
-            form = aiohttp.FormData()
-            form.add_field('apiKey', account.api_key)
-            form.add_field('file', image_data, filename=filename, content_type='image/jpeg')
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, data=form) as response:
-                    response_text = await response.text()
-                    logger.debug(f"Upload response: {response_text}")
+        for attempt in range(self.max_retries):
+            try:
+                # Создаем файл для загрузки
+                files = {
+                    'file': (filename, image_data, 'image/png')
+                }
+                
+                # Добавляем API ключ в параметры запроса
+                params = {
+                    'apiKey': account.api_key
+                }
+                
+                # Отправляем запрос
+                status, response_text = await self._make_request('post', url, files=files, params=params)
+                logger.debug(f"Upload response: {response_text}")
+                
+                if status == 200:
+                    response = json.loads(response_text)
+                    if response.get('code') == 0 and response.get('data', {}).get('fileName'):
+                        return response['data']['fileName']  # Возвращаем полный путь из ответа
                     
-                    if response.status == 200:
-                        try:
-                            data = json.loads(response_text)
-                            if data.get("code") == 0:
-                                return data["data"]["fileName"]
-                            else:
-                                logger.error(f"Upload API error: {data.get('msg', 'Unknown error')}")
-                        except json.JSONDecodeError as e:
-                            logger.error(f"Failed to parse upload response: {e}")
-                    else:
-                        logger.error(f"Failed to upload image: {response.status} - {response_text}")
-                    
-                    return None
-                    
-        except Exception as e:
-            logger.error(f"Error uploading image: {str(e)}")
-            return None
+                logger.error(f"Failed to upload image (attempt {attempt + 1}): {response_text}")
+                
+            except Exception as e:
+                logger.error(f"Error uploading image (attempt {attempt + 1}): {str(e)}")
+                
+            # Ждем перед следующей попыткой
+            if attempt < self.max_retries - 1:
+                await asyncio.sleep(self.retry_delay)
+        
+        return None
 
     async def _get_telegram_file_path(self, file_id: str) -> str:
         """
@@ -212,7 +216,7 @@ class RunningHubAPI:
                                 if task_id:
                                     # Успешное завершение
                                     result = data["data"][0]
-                                    if result.get("fileUrl"):
+                                    if result.get("fileUrl"):  # API возвращает fileUrl
                                         logger.info(f"Task {task_id} completed successfully")
                                         result_url = result["fileUrl"]
                                         task_completed = True
@@ -271,13 +275,19 @@ class RunningHubAPI:
             logger.info(f"Creating task with uploaded files (attempt {attempt + 1}/{self.max_retries})")
             
             try:
+                # Убеждаемся что пути начинаются с api/
+                if not product_filename.startswith('api/'):
+                    product_filename = f'api/{product_filename}'
+                if not background_filename.startswith('api/'):
+                    background_filename = f'api/{background_filename}'
+
                 # Создаем задачу
                 payload = {
                     "apiKey": account.api_key,
                     "workflowId": workflow_id,
                     "inputs": {
-                        "2": str(product_filename),  # Нода #2 для изображения товара
-                        "32": str(background_filename)  # Нода #32 для изображения фона
+                        "2": product_filename,  # Нода #2 для изображения товара
+                        "32": background_filename  # Нода #32 для изображения фона
                     }
                 }
                 
