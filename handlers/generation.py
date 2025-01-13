@@ -34,7 +34,7 @@ async def setup_api():
     task_queue.add_account(
         api_key=os.getenv('RUNNINGHUB_API_KEY'),
         workflow_id=os.getenv('RUNNINGHUB_WORKFLOW_PRODUCT'),
-        max_concurrent_tasks=1
+        max_tasks=1
     )
     await task_queue.initialize()
 
