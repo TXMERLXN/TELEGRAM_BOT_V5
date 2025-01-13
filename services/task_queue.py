@@ -9,12 +9,10 @@ logger = logging.getLogger(__name__)
 
 class RunningHubAccount:
     """Класс для хранения информации об аккаунте RunningHub"""
-    def __init__(self, api_key: str, workflow_id: str, max_tasks: int = 1):
-        self.api_key = api_key
-        self.workflow_id = workflow_id
+    def __init__(self, api: RunningHubAPI, max_tasks: int = 1):
+        self.api = api
         self.max_tasks = max_tasks
         self.current_tasks = 0
-        self.api: Optional[RunningHubAPI] = None
         
     @property
     def is_available(self) -> bool:
@@ -41,9 +39,9 @@ class TaskQueue:
         self._lock = asyncio.Lock()
         self.logger = logging.getLogger(__name__)
 
-    def add_account(self, api_key: str, workflow_id: str, max_tasks: int = 5) -> None:
-        """Добавить новый аккаунт RunningHub"""
-        account = RunningHubAccount(api_key, workflow_id, max_tasks)
+    def add_account(self, api: RunningHubAPI, max_tasks: int = 5) -> None:
+        """Добавление нового аккаунта"""
+        account = RunningHubAccount(api=api, max_tasks=max_tasks)
         self.accounts.append(account)
         self.logger.info(f"Added new RunningHub account with max tasks: {max_tasks}")
 
@@ -75,7 +73,7 @@ class TaskQueue:
                 return None
 
             # Запускаем обработку фотографий
-            self.logger.info(f"Processing photos with account {available_account.api_key[:8]}... (tasks: {available_account.current_tasks + 1})")
+            self.logger.info(f"Processing photos with account {available_account.api.api_key[:8]}... (tasks: {available_account.current_tasks + 1})")
             available_account.increment_tasks()
             self.active_tasks[user_id] = available_account
 
@@ -93,7 +91,7 @@ class TaskQueue:
                     user_id=user_id
                 )
                 
-                self.logger.info(f"Successfully processed photos with account {available_account.api_key[:8]}...")
+                self.logger.info(f"Successfully processed photos with account {available_account.api.api_key[:8]}...")
                 return result_url
             except Exception as e:
                 self.logger.error(f"Error processing photos: {str(e)}")
@@ -110,15 +108,10 @@ class TaskQueue:
                     asyncio.create_task(self.process_photos(next_user_id, next_product, next_background))
 
     def initialize_clients(self) -> None:
-        """Инициализация клиентов"""
+        """Инициализация API клиентов"""
         for account in self.accounts:
-            account.api = RunningHubAPI(
-                api_url=self.api_url,
-                api_key=account.api_key,
-                workflow_id=account.workflow_id,
-                max_tasks=account.max_tasks
-            )
-            account.api.initialize_client()
+            if account.api is not None:
+                asyncio.create_task(account.api._get_session())
         self.logger.info(f"Initialized {len(self.accounts)} API clients")
 
     def close_clients(self) -> None:
