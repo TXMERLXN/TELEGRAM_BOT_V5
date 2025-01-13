@@ -18,6 +18,7 @@ class RunningHubAccount:
 @dataclass
 class RunningHub:
     accounts: list[RunningHubAccount]
+    api_url: str = "https://www.runninghub.ai"  # URL API RunningHub
     task_timeout: int = 600  # Таймаут задачи в секундах (10 минут)
     retry_delay: int = 5  # Задержка между попытками в секундах
     max_retries: int = 3  # Максимальное количество попыток для HTTP запросов
