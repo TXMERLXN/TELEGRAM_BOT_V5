@@ -93,16 +93,13 @@ class RunningHubAPI:
         """Загружает изображение на RunningHub"""
         url = f"{self.api_url}/task/openapi/upload"
         
-        files = {
-            'file': (filename, image_data, 'image/jpeg')
-        }
-        data = {
-            'apiKey': account.api_key
-        }
-        
         try:
+            form = aiohttp.FormData()
+            form.add_field('apiKey', account.api_key)
+            form.add_field('file', image_data, filename=filename, content_type='image/jpeg')
+            
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, data=data, files=files) as response:
+                async with session.post(url, data=form) as response:
                     response_text = await response.text()
                     logger.debug(f"Upload response: {response_text}")
                     
@@ -111,10 +108,13 @@ class RunningHubAPI:
                             data = json.loads(response_text)
                             if data.get("code") == 0:
                                 return data["data"]["fileName"]
-                        except json.JSONDecodeError:
-                            pass
+                            else:
+                                logger.error(f"Upload API error: {data.get('msg', 'Unknown error')}")
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Failed to parse upload response: {e}")
+                    else:
+                        logger.error(f"Failed to upload image: {response.status} - {response_text}")
                     
-                    logger.error(f"Failed to upload image: {response.status} - {response_text}")
                     return None
                     
         except Exception as e:
