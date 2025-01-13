@@ -1,9 +1,7 @@
-import asyncio
-import logging
 import os
-from pathlib import Path
-from typing import Optional
-
+import sys
+import logging
+import asyncio
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
@@ -13,6 +11,7 @@ from aiohttp import web
 from config import config
 from handlers import base, generation
 from services.task_queue import task_queue
+from services.runninghub import RunningHubAPI
 
 # Настройка логирования
 logging.basicConfig(
