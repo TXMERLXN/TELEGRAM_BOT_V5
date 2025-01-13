@@ -171,11 +171,6 @@ class RunningHubAPI:
             for attempt in range(max_attempts):
                 logger.info(f"Getting task result for task {task_id} (attempt {attempt + 1}/{max_attempts})")
                 
-                # Проверяем, что аккаунт все еще доступен
-                if task_id not in self.task_accounts or not self.task_accounts[task_id]:
-                    logger.error(f"Account was released prematurely for task {task_id}")
-                    return None
-                
                 payload = {
                     "taskId": task_id,
                     "apiKey": account.api_key
@@ -196,8 +191,10 @@ class RunningHubAPI:
                                 # Успешное завершение
                                 result = data["data"][0]
                                 if result.get("fileUrl"):
+                                    logger.info(f"Task {task_id} completed successfully")
                                     return result["fileUrl"]
                                 elif result.get("text"):
+                                    logger.info(f"Task {task_id} completed successfully")
                                     return result["text"]
                                 else:
                                     logger.error("Task completed but no result found")
