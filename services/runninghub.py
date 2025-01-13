@@ -169,72 +169,58 @@ class RunningHubAPI:
         
     async def create_task(self, product_path: str, background_path: str) -> Optional[str]:
         """Создание задачи в RunningHub"""
-        for attempt in range(self.max_retries):
-            try:
-                # Проверяем размер файлов и логируем информацию
-                product_size = os.path.getsize(product_path)
-                background_size = os.path.getsize(background_path)
-                logger.info(f"Attempting to create task (attempt {attempt + 1}/{self.max_retries})")
-                logger.info(f"Product image: {product_path} ({product_size / 1024:.1f} KB)")
-                logger.info(f"Background image: {background_path} ({background_size / 1024:.1f} KB)")
+        try:
+            # Проверяем размер файлов и логируем информацию
+            product_size = os.path.getsize(product_path)
+            background_size = os.path.getsize(background_path)
+            logger.info(f"Creating task with downloaded photos")
+            logger.info(f"Product image: {product_path} ({product_size / 1024:.1f} KB)")
+            logger.info(f"Background image: {background_path} ({background_size / 1024:.1f} KB)")
 
-                # Создаем form-data с файлами
-                data = aiohttp.FormData()
-                data.add_field('product_image',
-                            open(product_path, 'rb'),
-                            filename='product.jpg',
-                            content_type='image/jpeg')
-                data.add_field('background_image',
-                            open(background_path, 'rb'),
-                            filename='background.jpg',
-                            content_type='image/jpeg')
-                data.add_field('workflow_id', self.workflow_id)
+            # Создаем form-data с файлами
+            data = aiohttp.FormData()
+            data.add_field('product_image',
+                        open(product_path, 'rb'),
+                        filename='product.jpg',
+                        content_type='image/jpeg')
+            data.add_field('background_image',
+                        open(background_path, 'rb'),
+                        filename='background.jpg',
+                        content_type='image/jpeg')
+            data.add_field('workflow_id', self.workflow_id)
 
-                async with self.get_session() as session:
-                    async with session.post(
-                        f"{self.api_url}/tasks",
-                        data=data,
-                        timeout=30
-                    ) as response:
-                        response_text = await response.text()
-                        logger.debug(f"API response: {response.status} - {response_text}")
-                        
-                        try:
-                            result = await response.json()
-                        except Exception as e:
-                            logger.error(f"Failed to parse JSON response: {response_text}")
-                            if attempt < self.max_retries - 1:
-                                await asyncio.sleep(self.retry_delay)
-                                continue
-                            raise RuntimeError(f"Failed to parse API response: {str(e)}")
+            async with self.get_session() as session:
+                async with session.post(
+                    f"{self.api_url}/tasks",
+                    data=data,
+                    timeout=30
+                ) as response:
+                    response_text = await response.text()
+                    logger.debug(f"API response: {response.status} - {response_text}")
+                    
+                    try:
+                        result = await response.json()
+                    except Exception as e:
+                        logger.error(f"Failed to parse JSON response: {response_text}")
+                        raise RuntimeError(f"Failed to parse API response: {str(e)}")
 
-                        if response.status == 200:
-                            task_id = result.get('task_id')
-                            if not task_id:
-                                raise RuntimeError(f"No task_id in successful response: {result}")
-                            logger.info(f"Successfully created task: {task_id}")
-                            return task_id
-                        else:
-                            error_code = result.get('code')
-                            error_msg = result.get('msg')
-                            error_data = result.get('data')
-                            error_text = f"API Error - Status: {response.status}, Code: {error_code}, Message: {error_msg}, Data: {error_data}"
-                            logger.error(error_text)
-                            
-                            if response.status == 500 and attempt < self.max_retries - 1:
-                                logger.info(f"Retrying after server error (attempt {attempt + 1})")
-                                await asyncio.sleep(self.retry_delay)
-                                continue
-                            raise RuntimeError(error_text)
+                    if response.status == 200:
+                        task_id = result.get('task_id')
+                        if not task_id:
+                            raise RuntimeError(f"No task_id in successful response: {result}")
+                        logger.info(f"Successfully created task: {task_id}")
+                        return task_id
+                    else:
+                        error_code = result.get('code')
+                        error_msg = result.get('msg')
+                        error_data = result.get('data')
+                        error_text = f"API Error - Status: {response.status}, Code: {error_code}, Message: {error_msg}, Data: {error_data}"
+                        logger.error(error_text)
+                        raise RuntimeError(error_text)
 
-            except Exception as e:
-                logger.error(f"Error in create_task: {str(e)}")
-                if attempt < self.max_retries - 1:
-                    await asyncio.sleep(self.retry_delay)
-                    continue
-                raise  # Пробрасываем исключение наверх после всех попыток
-
-        raise RuntimeError("All retry attempts failed")
+        except Exception as e:
+            logger.error(f"Error in create_task: {str(e)}")
+            raise
 
     async def _wait_for_result(self, task_id: str) -> Optional[str]:
         """Ожидание результата генерации"""
