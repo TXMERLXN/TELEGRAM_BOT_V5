@@ -84,15 +84,18 @@ class RunningHubAPI:
                     content_type='image/jpeg'
                 )
                 
+                upload_url = f"{self.api_url}/api/v1/upload"
+                logger.info(f"Making request to {upload_url}")
+                
                 async with self.get_session().post(
-                    f"{self.api_url}/uc/openapi/upload",
+                    upload_url,
                     data=form,
                     timeout=30
                 ) as response:
                     response_text = await response.text()
-                    logger.debug(f"Product upload response: {response_text}")
+                    logger.info(f"Product upload response: {response_text}")
                     if response.status != 200:
-                        logger.error(f"Failed to upload product image: Status {response.status}")
+                        logger.error(f"Failed to upload product image: Status {response.status}, Response: {response_text}")
                         return None
                     product_result = await response.json()
                     if product_result.get('code') != 0:
@@ -102,6 +105,7 @@ class RunningHubAPI:
                     if not product_url:
                         logger.error("No URL in product upload response")
                         return None
+                    logger.info(f"Successfully uploaded product image: {product_url}")
             except Exception as e:
                 logger.error(f"Error uploading product image: {str(e)}")
                 return None
@@ -123,15 +127,18 @@ class RunningHubAPI:
                     content_type='image/jpeg'
                 )
                 
+                upload_url = f"{self.api_url}/api/v1/upload"
+                logger.info(f"Making request to {upload_url}")
+                
                 async with self.get_session().post(
-                    f"{self.api_url}/uc/openapi/upload",
+                    upload_url,
                     data=form,
                     timeout=30
                 ) as response:
                     response_text = await response.text()
-                    logger.debug(f"Background upload response: {response_text}")
+                    logger.info(f"Background upload response: {response_text}")
                     if response.status != 200:
-                        logger.error(f"Failed to upload background image: Status {response.status}")
+                        logger.error(f"Failed to upload background image: Status {response.status}, Response: {response_text}")
                         return None
                     background_result = await response.json()
                     if background_result.get('code') != 0:
@@ -141,6 +148,7 @@ class RunningHubAPI:
                     if not background_url:
                         logger.error("No URL in background upload response")
                         return None
+                    logger.info(f"Successfully uploaded background image: {background_url}")
             except Exception as e:
                 logger.error(f"Error uploading background image: {str(e)}")
                 return None
