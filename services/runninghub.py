@@ -8,6 +8,7 @@ from aiogram import Bot
 from aiogram.types import FSInputFile
 import time
 import random
+import ssl
 
 logger = logging.getLogger(__name__)
 
@@ -28,10 +29,20 @@ class RunningHubAPI:
     def initialize_client(self) -> None:
         """Инициализация aiohttp сессии"""
         if self._session is None:
-            self._session = aiohttp.ClientSession()
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+            self._session = aiohttp.ClientSession(connector=connector)
             self.logger.info("Created new aiohttp session")
 
-    def close_client(self) -> None:
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """Получение или создание сессии"""
+        if self._session is None or self._session.closed:
+            self.initialize_client()
+        return self._session
+
+    async def close_client(self) -> None:
         """Закрытие aiohttp сессии"""
         if self._session is not None:
             if not self._session.closed:
@@ -51,58 +62,30 @@ class RunningHubAPI:
             self._session = None
             self.logger.info("Closed aiohttp session")
 
-    def get_session(self) -> aiohttp.ClientSession:
-        """Получение aiohttp сессии"""
-        if self._session is None or self._session.closed:
-            self._session = aiohttp.ClientSession()
-            self.logger.info("Created new aiohttp session")
-        return self._session
-
     async def _upload_image(self, image_path: str, file_type: str = "image") -> Optional[str]:
         """Загрузка изображения на сервер"""
         try:
-            # Добавляем случайный суффикс к имени файла
-            original_filename = os.path.basename(image_path)
-            base, ext = os.path.splitext(original_filename)
-            random_suffix = ''.join(random.choices('0123456789abcdef', k=8))
-            filename = f"{base}_{random_suffix}{ext}"
+            session = await self._get_session()
+            url = f"{self.api_url}/task/openapi/upload"
+            self.logger.info(f"Making request to {url}")
             
-            logger.info(f"Making request to {self.api_url}/task/openapi/upload")
-            
-            data = aiohttp.FormData()
-            data.add_field('apiKey', self.api_key)
-            data.add_field('fileType', file_type)
-            data.add_field('file',
-                          open(image_path, 'rb'),
-                          filename=filename,
-                          content_type='image/jpeg')
-
-            async with self.get_session().post(
-                f"{self.api_url}/task/openapi/upload",
-                data=data,
-                timeout=30
-            ) as response:
-                response_text = await response.text()
-                logger.info(f"Upload response: {response_text}")
-                
-                if response.status != 200:
-                    logger.error(f"Failed to upload image: Status {response.status}")
-                    return None
+            async with session as session:
+                with open(image_path, 'rb') as f:
+                    form = aiohttp.FormData()
+                    form.add_field('file', f)
+                    form.add_field('type', file_type)
                     
-                result = await response.json()
-                if result.get('code') != 0:
-                    logger.error(f"API error: {result.get('msg', 'Unknown error')}")
-                    return None
-                    
-                file_name = result.get('data', {}).get('fileName')
-                if not file_name:
-                    logger.error("No fileName in response")
-                    return None
-                    
-                return file_name
-                
+                    headers = {'X-API-KEY': self.api_key}
+                    async with session.post(url, data=form, headers=headers) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            return data.get('data', {}).get('id')
+                        else:
+                            error_text = await response.text()
+                            self.logger.error(f"Error response: {error_text}")
+                            return None
         except Exception as e:
-            logger.error(f"Error uploading image: {str(e)}")
+            self.logger.error(f"Error uploading image: {e}")
             return None
 
     async def process_photos(self, user_id: int, product_photo: str, background_photo: str) -> Optional[str]:
@@ -115,7 +98,7 @@ class RunningHubAPI:
             background_path = f"temp/background_{user_id}.jpg"
             
             try:
-                async with self.get_session().get(product_photo) as response:
+                async with self._get_session().get(product_photo) as response:
                     if response.status != 200:
                         logger.error(f"Failed to download product photo: {response.status}")
                         return None
@@ -127,7 +110,7 @@ class RunningHubAPI:
                 return None
                 
             try:
-                async with self.get_session().get(background_photo) as response:
+                async with self._get_session().get(background_photo) as response:
                     if response.status != 200:
                         logger.error(f"Failed to download background photo: {response.status}")
                         return None
@@ -171,7 +154,7 @@ class RunningHubAPI:
                     ]
                 }
                 
-                async with self.get_session().post(
+                async with self._get_session().post(
                     f"{self.api_url}/task/openapi/create",
                     json=task_data,
                     timeout=30
@@ -237,7 +220,7 @@ class RunningHubAPI:
                     "apiKey": self.api_key
                 }
                 
-                async with self.get_session().post(
+                async with self._get_session().post(
                     f"{self.api_url}/task/openapi/status",
                     json=status_data,
                     timeout=30
@@ -264,7 +247,7 @@ class RunningHubAPI:
                     
                     # Если задача завершена успешно
                     if task_status == 'SUCCESS':
-                        async with self.get_session().post(
+                        async with self._get_session().post(
                             f"{self.api_url}/task/openapi/outputs",
                             json=status_data,
                             timeout=30
@@ -350,7 +333,7 @@ class RunningHubAPI:
             }
             
             try:
-                async with self.get_session().post(
+                async with self._get_session().post(
                     f"{self.api_url}/uc/openapi/accountStatus",
                     json=data,
                     headers=headers,

@@ -124,17 +124,33 @@ class TaskQueue:
     def close_clients(self) -> None:
         """Закрытие всех клиентов"""
         for account in self.accounts:
-            if hasattr(account, 'api'):
-                account.api.close_client()
+            if hasattr(account, 'api') and account.api is not None:
+                try:
+                    account.api.close_client()
+                except Exception as e:
+                    self.logger.error(f"Error closing client: {e}")
         self.logger.info("Closed all API clients")
 
     async def cancel_all_tasks(self) -> None:
         """Отмена всех активных задач"""
-        self.logger.info("Canceling all active tasks")
-        self.task_queue.clear()
+        self.logger.info("Cancelling all active tasks")
+        for user_id, task in self.active_tasks.items():
+            self.logger.info(f"Cancelling task for user {user_id}")
+            account = task
+            if account:
+                account.current_tasks -= 1
         self.active_tasks.clear()
+        self.task_queue.clear()
+        
+        # Закрываем все клиенты
         for account in self.accounts:
-            account.current_tasks = 0
+            if hasattr(account, 'api') and account.api is not None:
+                try:
+                    await account.api.close_client()
+                except Exception as e:
+                    self.logger.error(f"Error closing client: {e}")
+        
+        self.logger.info("All tasks cancelled and clients closed")
 
 # Глобальный экземпляр очереди задач
 task_queue = TaskQueue(api_url='https://api.runninghub.com')
