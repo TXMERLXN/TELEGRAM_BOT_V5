@@ -168,6 +168,7 @@ class RunningHubAPI:
                           open(background_path, 'rb'),
                           filename='background.jpg',
                           content_type='image/jpeg')
+            data.add_field('workflow_id', self.workflow_id)
             
             logger.debug(f"Sending POST request to {self.api_url}/tasks")
             headers = {
@@ -193,7 +194,8 @@ class RunningHubAPI:
                             return None
                         return task_id
                     else:
-                        logger.error(f"Error creating task: {response.status} - {response_text}")
+                        error_msg = await response.json()
+                        logger.error(f"Error creating task: {response.status} - {error_msg}")
                         return None
                     
         except Exception as e:
