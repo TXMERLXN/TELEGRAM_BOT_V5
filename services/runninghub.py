@@ -7,6 +7,7 @@ from typing import Optional
 from aiogram import Bot
 from aiogram.types import FSInputFile
 import time
+import random
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,53 @@ class RunningHubAPI:
         if not self._session:
             raise RuntimeError("Session not initialized. Call initialize() first")
         return self._session
+
+    async def _upload_image(self, image_path: str, file_type: str = "image") -> Optional[str]:
+        """Загрузка изображения на сервер"""
+        try:
+            # Добавляем случайный суффикс к имени файла
+            original_filename = os.path.basename(image_path)
+            base, ext = os.path.splitext(original_filename)
+            random_suffix = ''.join(random.choices('0123456789abcdef', k=8))
+            filename = f"{base}_{random_suffix}{ext}"
+            
+            logger.info(f"Making request to {self.api_url}/task/openapi/upload")
+            
+            data = aiohttp.FormData()
+            data.add_field('apiKey', self.api_key)
+            data.add_field('fileType', file_type)
+            data.add_field('file',
+                          open(image_path, 'rb'),
+                          filename=filename,
+                          content_type='image/jpeg')
+
+            async with self.get_session().post(
+                f"{self.api_url}/task/openapi/upload",
+                data=data,
+                timeout=30
+            ) as response:
+                response_text = await response.text()
+                logger.info(f"Upload response: {response_text}")
+                
+                if response.status != 200:
+                    logger.error(f"Failed to upload image: Status {response.status}")
+                    return None
+                    
+                result = await response.json()
+                if result.get('code') != 0:
+                    logger.error(f"API error: {result.get('msg', 'Unknown error')}")
+                    return None
+                    
+                file_name = result.get('data', {}).get('fileName')
+                if not file_name:
+                    logger.error("No fileName in response")
+                    return None
+                    
+                return file_name
+                
+        except Exception as e:
+            logger.error(f"Error uploading image: {str(e)}")
+            return None
 
     async def process_photos(self, user_id: int, product_photo: str, background_photo: str) -> Optional[str]:
         """Обработка фотографий"""
@@ -74,93 +122,17 @@ class RunningHubAPI:
             
             # Загружаем фотографии в RunningHub
             logger.info("Uploading product image...")
-            try:
-                # Создаем multipart form
-                form = aiohttp.FormData()
-                form.add_field('apiKey', self.api_key)
-                form.add_field('fileType', 'image')
-                form.add_field(
-                    'file',
-                    open(product_path, 'rb'),
-                    filename=os.path.basename(product_path),
-                    content_type='image/jpeg'
-                )
-                
-                upload_url = f"{self.api_url}/task/openapi/upload"
-                logger.info(f"Making request to {upload_url}")
-                
-                async with self.get_session().post(
-                    upload_url,
-                    data=form,
-                    timeout=30
-                ) as response:
-                    response_text = await response.text()
-                    logger.info(f"Product upload response: {response_text}")
-                    if response.status != 200:
-                        logger.error(f"Failed to upload product image: Status {response.status}, Response: {response_text}")
-                        return None
-                    product_result = await response.json()
-                    if product_result.get('code') != 0:
-                        logger.error(f"Failed to upload product image: {product_result.get('msg')}")
-                        return None
-                    product_url = product_result['data'].get('fileName')
-                    if not product_url:
-                        logger.error("No fileName in product upload response")
-                        return None
-                    logger.info(f"Successfully uploaded product image: {product_url}")
-            except Exception as e:
-                logger.error(f"Error uploading product image: {str(e)}")
+            product_url = await self._upload_image(product_path)
+            if not product_url:
                 return None
-            finally:
-                if 'form' in locals() and hasattr(form, '_fields'):
-                    for field in form._fields:
-                        if hasattr(field[2], 'close'):
-                            field[2].close()
-                    
+            logger.info(f"Successfully uploaded product image: {product_url}")
+            
             logger.info("Uploading background image...")
-            try:
-                # Создаем multipart form
-                form = aiohttp.FormData()
-                form.add_field('apiKey', self.api_key)
-                form.add_field('fileType', 'image')
-                form.add_field(
-                    'file',
-                    open(background_path, 'rb'),
-                    filename=os.path.basename(background_path),
-                    content_type='image/jpeg'
-                )
-                
-                upload_url = f"{self.api_url}/task/openapi/upload"
-                logger.info(f"Making request to {upload_url}")
-                
-                async with self.get_session().post(
-                    upload_url,
-                    data=form,
-                    timeout=30
-                ) as response:
-                    response_text = await response.text()
-                    logger.info(f"Background upload response: {response_text}")
-                    if response.status != 200:
-                        logger.error(f"Failed to upload background image: Status {response.status}, Response: {response_text}")
-                        return None
-                    background_result = await response.json()
-                    if background_result.get('code') != 0:
-                        logger.error(f"Failed to upload background image: {background_result.get('msg')}")
-                        return None
-                    background_url = background_result['data'].get('fileName')
-                    if not background_url:
-                        logger.error("No fileName in background upload response")
-                        return None
-                    logger.info(f"Successfully uploaded background image: {background_url}")
-            except Exception as e:
-                logger.error(f"Error uploading background image: {str(e)}")
+            background_url = await self._upload_image(background_path)
+            if not background_url:
                 return None
-            finally:
-                if 'form' in locals() and hasattr(form, '_fields'):
-                    for field in form._fields:
-                        if hasattr(field[2], 'close'):
-                            field[2].close()
-                            
+            logger.info(f"Successfully uploaded background image: {background_url}")
+            
             # Создаем задачу с загруженными изображениями
             logger.info(f"Creating task with workflow {self.workflow_id}")
             try:
