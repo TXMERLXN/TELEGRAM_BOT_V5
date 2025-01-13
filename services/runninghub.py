@@ -143,15 +143,11 @@ class RunningHubAPI:
             if not file:
                 raise Exception(f"Could not get file info for {file_id}")
                 
-            # Скачиваем файл
-            async with self.get_session() as session:
-                async with session.get(file.file_url) as response:
-                    if response.status != 200:
-                        raise Exception(f"Could not download file: {response.status}")
-                        
-                    # Сохраняем файл
-                    with open(save_path, 'wb') as f:
-                        f.write(await response.read())
+            # Скачиваем файл напрямую через бота
+            await self.bot.download(
+                file=file,
+                destination=save_path
+            )
                         
             logger.info(f"Successfully downloaded photo to {save_path}")
             
