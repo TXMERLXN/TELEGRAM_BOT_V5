@@ -2,7 +2,7 @@ import aiohttp
 import json
 import logging
 import asyncio
-from typing import Optional, Dict
+from typing import Optional, Dict, Union
 from PIL import Image
 import io
 from config import load_config
@@ -86,13 +86,15 @@ class RunningHubAPI:
             logger.error(f"Error resizing image: {str(e)}")
             return image_data
 
-    async def _make_request(self, method: str, url: str, **kwargs) -> tuple[int, Optional[str]]:
+    async def _make_request(self, method: str, url: str, return_bytes: bool = False, **kwargs) -> tuple[int, Optional[Union[str, bytes]]]:
         """Делает HTTP запрос с повторными попытками"""
         if not self.session:
             await self.initialize()
             
         try:
             async with self.session.request(method, url, **kwargs) as response:
+                if return_bytes:
+                    return response.status, await response.read()
                 return response.status, await response.text()
         except Exception as e:
             logger.error(f"HTTP request error: {str(e)}")
@@ -157,10 +159,10 @@ class RunningHubAPI:
                 return None
 
             url = f"https://api.telegram.org/file/bot{self.bot_token}/{file.file_path}"
-            status, response = await self._make_request('get', url)
+            status, response = await self._make_request('get', url, return_bytes=True)
             
             if status == 200 and response:
-                return response.encode()
+                return response
             
             logger.error(f"Failed to download file from Telegram: {status}")
             return None
