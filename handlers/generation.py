@@ -110,13 +110,22 @@ async def process_photos(message: Message, state: FSMContext) -> None:
             await processing_message.delete()
             await message.answer_photo(
                 URLInputFile(result_url),
-                caption="✅ Готово! Вот результат обработки."
+                caption="✅ Готово! Вот результат обработки.",
+                reply_markup=get_result_keyboard()
             )
         else:
-            await processing_message.edit_text("❌ Не удалось обработать фотографии. Попробуйте еще раз.")
+            await processing_message.edit_text(
+                "❌ Не удалось обработать фотографии. Попробуйте еще раз.",
+                reply_markup=get_result_keyboard()
+            )
     except Exception as e:
         logger.error(f"Error processing photos: {str(e)}")
-        await processing_message.edit_text("❌ Произошла ошибка при обработке фотографий. Попробуйте еще раз.")
+        await processing_message.edit_text(
+            "❌ Произошла ошибка при обработке фотографий. Попробуйте еще раз.",
+            reply_markup=get_result_keyboard()
+        )
+    finally:
+        await state.clear()
 
 @router.message(GenerationState.waiting_for_product)
 @router.message(GenerationState.waiting_for_background)
