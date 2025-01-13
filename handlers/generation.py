@@ -31,7 +31,7 @@ router = Router()
 async def setup_api() -> None:
     """Настройка API клиента"""
     api = RunningHubAPI(
-        api_url=os.getenv('RUNNINGHUB_API_URL', 'https://api.runninghub.com'),
+        api_url=os.getenv('RUNNINGHUB_API_URL', 'https://www.runninghub.ai'),
         api_key=os.getenv('RUNNINGHUB_API_KEY'),
         workflow_id=os.getenv('RUNNINGHUB_WORKFLOW_ID')
     )
