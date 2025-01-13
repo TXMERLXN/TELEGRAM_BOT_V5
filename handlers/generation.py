@@ -12,7 +12,8 @@ from messages import (
     GENERATION_STARTED,
     GENERATION_COMPLETE,
     GENERATION_ERROR,
-    GENERATION_CANCELLED
+    GENERATION_CANCELLED,
+    GENERATION_QUEUED
 )
 
 router = Router()
@@ -113,6 +114,12 @@ async def generate_photo(
         # Сохраняем task_id в состоянии
         await state.update_data(task_id=task_id)
         
+        # Обновляем сообщение о статусе
+        await status_message.edit_text(
+            GENERATION_QUEUED(),
+            reply_markup=get_cancel_keyboard()
+        )
+        
         # Ожидаем завершения генерации
         while True:
             status, result_url = await runninghub.get_generation_status(task_id)
@@ -136,6 +143,10 @@ async def generate_photo(
                     reply_markup=get_main_menu_keyboard()
                 )
                 return None
+            
+            elif status == "queued":
+                # Продолжаем ждать
+                pass
             
             elif status == "not_found":
                 logger.error("Задача не найдена")

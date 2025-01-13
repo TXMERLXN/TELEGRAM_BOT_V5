@@ -2,39 +2,44 @@ import aiohttp
 import json
 import logging
 import asyncio
+from typing import Optional
 from config import load_config
 from .task_queue import task_queue
+from .account_manager import account_manager
 
 config = load_config()
 logger = logging.getLogger(__name__)
 
 class RunningHubAPI:
     def __init__(self):
-        self.api_key = config.runninghub.api_key
         self.headers = {
             "Content-Type": "application/json"
         }
-        self.workflow_id = "1871659613585305601"
         self.api_url = "https://www.runninghub.ai"
         # Таймауты для HTTP-запросов
         self.timeout = aiohttp.ClientTimeout(
-            total=600,  # Общий таймаут 10 минут
+            total=config.runninghub.task_timeout,
             connect=60,  # Таймаут на подключение 1 минута
             sock_read=300  # Таймаут на чтение 5 минут
         )
-        if not self.api_key:
-            logger.error("RunningHubAPI initialization failed: API key is not set")
-            raise ValueError("RUNNINGHUB_API_KEY environment variable is not set")
-        logger.info(f"Initialized RunningHubAPI with API key: {self.api_key[:8]}...")
+        self.max_retries = config.runninghub.max_retries
+        self.retry_delay = config.runninghub.retry_delay
+        self.current_account = None
+        logger.info("Initialized RunningHubAPI")
 
     async def _make_request(self, method: str, url: str, return_bytes: bool = False, **kwargs) -> tuple:
         """
         Выполняет HTTP-запрос с повторными попытками
         """
-        max_retries = 3
-        retry_delay = 5
-        
-        for attempt in range(max_retries):
+        if not self.current_account:
+            raise ValueError("No RunningHub account selected")
+            
+        if 'headers' not in kwargs:
+            kwargs['headers'] = {}
+        kwargs['headers'].update(self.headers)
+        kwargs['headers']['Authorization'] = f'Bearer {self.current_account.api_key}'
+
+        for attempt in range(self.max_retries):
             try:
                 async with aiohttp.ClientSession(timeout=self.timeout) as session:
                     async with getattr(session, method)(url, **kwargs) as response:
@@ -44,45 +49,52 @@ class RunningHubAPI:
                             response_data = await response.text()
                         return response.status, response_data
             except asyncio.TimeoutError:
-                logger.warning(f"Timeout on attempt {attempt + 1}/{max_retries}")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(retry_delay)
+                logger.warning(f"Timeout on attempt {attempt + 1}/{self.max_retries}")
+                if attempt < self.max_retries - 1:
+                    await asyncio.sleep(self.retry_delay)
                 continue
             except Exception as e:
-                logger.error(f"Request error on attempt {attempt + 1}/{max_retries}: {str(e)}")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(retry_delay)
+                logger.error(f"Request failed on attempt {attempt + 1}/{self.max_retries}: {str(e)}")
+                if attempt < self.max_retries - 1:
+                    await asyncio.sleep(self.retry_delay)
                 continue
-        
-        return None, None
+        raise Exception(f"Failed after {self.max_retries} attempts")
 
-    async def upload_image(self, image_data: bytes, filename: str) -> str:
-        """
-        Загружает изображение на сервер RunningHub
-        """
+    async def upload_image(self, image_data: bytes, filename: str) -> Optional[str]:
+        """Загружает изображение на RunningHub"""
         url = f"{self.api_url}/task/openapi/upload"
         
-        # Создаем форму для загрузки файла
-        form = aiohttp.FormData()
-        form.add_field('apiKey', self.api_key)
-        form.add_field('file', image_data, filename=filename, content_type='image/jpeg')
-        form.add_field('fileType', 'image')
-
-        logger.info(f"Uploading image to {url}")
-        
-        status, response_text = await self._make_request('post', url, data=form)
-        if status == 200 and response_text:
-            try:
-                data = json.loads(response_text)
-                if data.get("code") == 0:
-                    return data["data"]["fileName"]
-                else:
-                    error_msg = data.get("msg")
-                    logger.error(f"Upload API error: {error_msg}")
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse upload JSON response: {e}")
-        else:
-            logger.error(f"Upload API error: {status} - {response_text}")
+        try:
+            # Создаем multipart-данные для загрузки файла
+            form = aiohttp.FormData()
+            form.add_field('apiKey', self.current_account.api_key)
+            form.add_field(
+                'file',
+                image_data,
+                filename=filename,
+                content_type='image/jpeg'
+            )
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, data=form) as response:
+                    response_text = await response.text()
+                    logger.debug(f"Upload response: {response_text}")
+                    
+                    if response.status == 200:
+                        try:
+                            data = json.loads(response_text)
+                            if data.get("code") == 0:
+                                return data["data"]["fileName"]
+                            else:
+                                logger.error(f"Upload API error: {data.get('msg')}")
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Failed to parse upload response: {e}")
+                    else:
+                        logger.error(f"Upload failed with status {response.status}")
+                        
+        except Exception as e:
+            logger.error(f"Error uploading image: {str(e)}")
+            
         return None
 
     async def _get_telegram_file_path(self, file_id: str) -> str:
@@ -128,7 +140,7 @@ class RunningHubAPI:
         url = f"{self.api_url}/task/openapi/outputs"
         payload = {
             "taskId": task_id,
-            "apiKey": self.api_key
+            "apiKey": self.current_account.api_key
         }
 
         for attempt in range(max_attempts):
@@ -174,77 +186,134 @@ class RunningHubAPI:
         logger.error(f"Task {task_id} did not complete within {max_attempts * delay} seconds")
         return None
 
-    async def generate_product_photo(self, user_id: int, product_image: str, background_image: str) -> str:
+    async def create_task(self, product_filename: str, background_filename: str, workflow_id: str = "1") -> Optional[str]:
+        """Создает задачу в RunningHub"""
+        url = f"{self.api_url}/task/openapi/create"
+        
+        for attempt in range(1, self.max_retries + 1):
+            logger.info(f"Creating task with uploaded files (attempt {attempt}/{self.max_retries})")
+            
+            data = {
+                "apiKey": self.current_account.api_key,
+                "workflowId": workflow_id,
+                "variables": {
+                    "product_image": product_filename,
+                    "background_image": background_filename
+                }
+            }
+            
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(url, json=data) as response:
+                        response_text = await response.text()
+                        if response.status == 200:
+                            try:
+                                data = json.loads(response_text)
+                                if data.get("code") == 0:
+                                    return data["data"]["taskId"]
+                                else:
+                                    error_msg = data.get("msg", "Unknown error")
+                                    if error_msg == "TASK_QUEUE_MAXED":
+                                        # Если очередь заполнена, ждем дольше перед следующей попыткой
+                                        logger.warning("Task queue is maxed out, waiting before retry")
+                                        await asyncio.sleep(self.retry_delay * 2)
+                                    elif error_msg == "TASK_CREATE_TOO_FAST":
+                                        logger.warning("Task creation too fast, waiting before retry")
+                                        await asyncio.sleep(self.retry_delay)
+                                    else:
+                                        logger.error(f"Task creation API error: {error_msg}")
+                            except json.JSONDecodeError as e:
+                                logger.error(f"Failed to parse task creation response: {e}")
+                        else:
+                            logger.error(f"Task creation failed with status {response.status}")
+                            
+            except Exception as e:
+                logger.error(f"Error creating task: {str(e)}")
+            
+            if attempt < self.max_retries:
+                await asyncio.sleep(self.retry_delay)
+                
+        return None
+
+    async def generate_product_photo(self, user_id: int, product_image: bytes, background_image: bytes) -> Optional[str]:
         """
         Генерирует фотографию продукта с фоном
         """
-        # Скачиваем файлы из Telegram
-        product_data = await self._download_telegram_file(product_image)
-        background_data = await self._download_telegram_file(background_image)
-        
-        if not product_data or not background_data:
-            logger.error("Failed to download images from Telegram")
-            return None
+        try:
+            # Получаем доступный аккаунт для генерации
+            self.current_account = await account_manager.get_available_account("product")
+            if not self.current_account:
+                logger.error("No available RunningHub accounts")
+                return None
 
-        # Загружаем файлы на RunningHub
-        product_filename = await self.upload_image(product_data, "product.jpg")
-        background_filename = await self.upload_image(background_data, "background.jpg")
+            workflow_id = self.current_account.workflows["product"]
+            logger.info(f"Using RunningHub account with workflow_id: {workflow_id}")
 
-        if not product_filename or not background_filename:
-            logger.error("Failed to upload images to RunningHub")
-            return None
-
-        # Создаем задачу с загруженными файлами
-        url = f"{self.api_url}/task/openapi/create"
-        payload = {
-            "workflowId": self.workflow_id,
-            "apiKey": self.api_key,
-            "runningMode": "parallel",  # Включаем параллельный режим
-            "nodeInfoList": [
-                {
-                    "nodeId": "2",  # ID ноды для загрузки изображения продукта
-                    "fieldName": "image",
-                    "fieldValue": product_filename,
-                    "runningMode": "parallel"  # Включаем параллельный режим для ноды
-                },
-                {
-                    "nodeId": "32",  # ID ноды для загрузки фонового изображения
-                    "fieldName": "image",
-                    "fieldValue": background_filename,
-                    "runningMode": "parallel"  # Включаем параллельный режим для ноды
+            # Создаем задачу
+            task_data = {
+                "workflow_id": workflow_id,
+                "inputs": {
+                    "product_image": product_image,
+                    "background_image": background_image
                 }
-            ]
-        }
+            }
 
-        logger.info("Creating task with uploaded files")
-        status, response_text = await self._make_request('post', url, json=payload)
-        if status == 200 and response_text:
-            try:
-                data = json.loads(response_text)
-                if data.get("code") == 0:
-                    task_id = data["data"]["taskId"]
-                    logger.info(f"Task created successfully: {task_id}")
-                    
-                    # Добавляем задачу в очередь
-                    await task_queue.add_task(user_id, task_id)
-                    
-                    # Запускаем обработку задачи
-                    asyncio.create_task(
-                        task_queue.process_task(
-                            task_id,
-                            lambda tid: self._wait_for_task_completion(tid)
-                        )
+            status, response = await self._make_request(
+                "post",
+                f"{self.api_url}/api/v1/task/create",
+                json=task_data
+            )
+
+            if status != 200:
+                logger.error(f"Failed to create task: {response}")
+                return None
+
+            task_id = json.loads(response).get("task_id")
+            if not task_id:
+                logger.error("No task_id in response")
+                return None
+
+            logger.info(f"Created task {task_id} for user {user_id}")
+
+            # Ожидаем завершения задачи
+            while True:
+                status, response = await self._make_request(
+                    "get",
+                    f"{self.api_url}/api/v1/task/{task_id}/status"
+                )
+
+                if status != 200:
+                    logger.error(f"Failed to get task status: {response}")
+                    return None
+
+                task_status = json.loads(response)
+                if task_status.get("status") == "completed":
+                    # Получаем результат
+                    status, response = await self._make_request(
+                        "get",
+                        f"{self.api_url}/api/v1/task/{task_id}/result",
+                        return_bytes=True
                     )
-                    
-                    return task_id
-                else:
-                    error_msg = data.get("msg", "Unknown error")
-                    logger.error(f"Task creation API error: {error_msg}")
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse task creation JSON response: {e}")
-        else:
-            logger.error(f"Task creation API error: {status} - {response_text}")
-        return None
+
+                    if status != 200:
+                        logger.error(f"Failed to get task result: {response}")
+                        return None
+
+                    return response
+
+                elif task_status.get("status") in ["failed", "cancelled"]:
+                    logger.error(f"Task failed or cancelled: {task_status}")
+                    return None
+
+                await asyncio.sleep(2)
+
+        except Exception as e:
+            logger.error(f"Error in generate_product_photo: {str(e)}")
+            return None
+        finally:
+            if self.current_account:
+                await account_manager.release_account(self.current_account)
+                self.current_account = None
 
     async def get_generation_status(self, task_id: str) -> tuple[str, Optional[str]]:
         """
@@ -254,7 +323,7 @@ class RunningHubAPI:
         url = f"{self.api_url}/task/openapi/outputs"
         payload = {
             "taskId": task_id,
-            "apiKey": self.api_key
+            "apiKey": self.current_account.api_key
         }
 
         status, response_text = await self._make_request('post', url, json=payload)
