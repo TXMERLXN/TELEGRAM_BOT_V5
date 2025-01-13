@@ -35,7 +35,19 @@ class RunningHubAPI:
         """Закрытие aiohttp сессии"""
         if self._session is not None:
             if not self._session.closed:
-                self._session.close()
+                try:
+                    if self._session._connector is not None and not self._session._connector.closed:
+                        self._session._connector.close()
+                    if self._session._connector_owner:
+                        self._session._connector = None
+                except Exception as e:
+                    self.logger.error(f"Error closing session connector: {e}")
+                
+                try:
+                    self._session.close()
+                except Exception as e:
+                    self.logger.error(f"Error closing session: {e}")
+            
             self._session = None
             self.logger.info("Closed aiohttp session")
 

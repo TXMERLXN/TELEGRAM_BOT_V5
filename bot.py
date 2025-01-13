@@ -54,6 +54,9 @@ async def on_shutdown(bot: Bot, dispatcher: Dispatcher):
     # Закрываем все API клиенты
     task_queue.close_clients()
     
+    # Закрываем сессию бота
+    await bot.session.close()
+    
     logger.info("==========================")
 
 def main():
