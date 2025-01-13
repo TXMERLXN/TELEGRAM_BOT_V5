@@ -163,7 +163,7 @@ Telegram бот для генерации профессиональных фо�
   {
     "code": 0,
     "msg": "success",
-    "data": "SUCCEEDED|FAILED|RUNNING|PENDING|QUEUED"
+    "data": "SUCCESS|FAIL|RUNNING|PENDING|QUEUED"
   }
   ```
 
@@ -198,8 +198,8 @@ Telegram бот для генерации профессиональных фо�
 - `805`: Task is in queue (APIKEY_TASK_QUEUE)
 
 ### Task Status
-- `SUCCEEDED`: Task completed successfully
-- `FAILED`: Task failed
+- `SUCCESS`: Task completed successfully
+- `FAIL`: Task failed
 - `RUNNING`: Task is currently running
 - `PENDING`: Task is pending
 - `QUEUED`: Task is in queue
@@ -207,8 +207,8 @@ Telegram бот для генерации профессиональных фо�
 ### Notes
 1. All requests require an API key
 2. File paths should be absolute paths on the server
-3. Check task status periodically until it's SUCCEEDED or FAILED
-4. Get outputs only when task status is SUCCEEDED
+3. Check task status periodically until it's SUCCESS or FAIL
+4. Get outputs only when task status is SUCCESS
 5. Handle rate limits and concurrent tasks per account
 
 ## Переменные окружения

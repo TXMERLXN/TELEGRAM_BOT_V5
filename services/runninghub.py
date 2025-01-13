@@ -339,6 +339,14 @@ class RunningHubAPI:
                     task_status = str(data.get("data", "")).upper()
                     logger.debug(f"Task status: {task_status}")
                     
+                    # Нормализуем статусы
+                    status_mapping = {
+                        "SUCCESS": "SUCCEEDED",
+                        "FAIL": "FAILED",
+                        "FAILED": "FAILED"
+                    }
+                    task_status = status_mapping.get(task_status, task_status)
+                    
                     if task_status == "SUCCEEDED":
                         # Получаем результат через отдельный endpoint
                         result_url = f"{self.api_url}/task/openapi/outputs"
