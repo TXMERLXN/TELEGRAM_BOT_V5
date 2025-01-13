@@ -151,7 +151,7 @@ class RunningHubAPI:
         logger.error(f"Failed to get file path from Telegram: {status}")
         return None
 
-    async def _download_telegram_file(self, file_id: str) -> bytes:
+    async def _download_telegram_file(self, file_id: str) -> Optional[bytes]:
         """
         Скачивает файл из Telegram
         """
@@ -272,7 +272,7 @@ class RunningHubAPI:
                 
         return None
 
-    async def generate_product_photo(self, user_id: int, product_image: bytes, background_image: bytes) -> Optional[str]:
+    async def generate_product_photo(self, user_id: int, product_file_id: str, background_file_id: str) -> Optional[str]:
         """
         Генерирует фотографию продукта с фоном
         """
@@ -285,6 +285,17 @@ class RunningHubAPI:
 
             workflow_id = self.current_account.workflows["product"]
             logger.info(f"Using RunningHub account with workflow_id: {workflow_id}")
+
+            # Скачиваем изображения из Telegram
+            product_image = await self._download_telegram_file(product_file_id)
+            if not product_image:
+                logger.error("Failed to download product image")
+                return None
+
+            background_image = await self._download_telegram_file(background_file_id)
+            if not background_image:
+                logger.error("Failed to download background image")
+                return None
 
             # Уменьшаем размер изображений
             product_image = self._resize_image(product_image)
