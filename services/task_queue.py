@@ -113,10 +113,10 @@ class TaskQueue:
         """Инициализация клиентов"""
         for account in self.accounts:
             account.api = RunningHubAPI(
-                bot=Bot(token=os.environ['BOT_TOKEN']),
                 api_url=self.api_url,
                 api_key=account.api_key,
-                workflow_id=account.workflow_id
+                workflow_id=account.workflow_id,
+                max_tasks=account.max_concurrent_tasks
             )
             account.api.initialize_client()
         self.logger.info(f"Initialized {len(self.accounts)} API clients")
@@ -124,7 +124,8 @@ class TaskQueue:
     def close_clients(self) -> None:
         """Закрытие всех клиентов"""
         for account in self.accounts:
-            account.api.close_client()
+            if hasattr(account, 'api'):
+                account.api.close_client()
         self.logger.info("Closed all API clients")
 
     async def cancel_all_tasks(self) -> None:
