@@ -3,6 +3,8 @@ import json
 import logging
 import asyncio
 from typing import Optional
+from PIL import Image
+import io
 from config import load_config
 from .task_queue import task_queue
 from .account_manager import account_manager
@@ -25,7 +27,41 @@ class RunningHubAPI:
         self.max_retries = config.runninghub.max_retries
         self.retry_delay = config.runninghub.retry_delay
         self.current_account = None
+        self.max_image_size = 1024  # Максимальный размер изображения
         logger.info("Initialized RunningHubAPI")
+
+    def _resize_image(self, image_data: bytes) -> bytes:
+        """Уменьшает размер изображения, сохраняя пропорции"""
+        try:
+            # Открываем изображение из bytes
+            image = Image.open(io.BytesIO(image_data))
+            
+            # Получаем размеры
+            width, height = image.size
+            
+            # Если изображение меньше максимального размера, возвращаем как есть
+            if width <= self.max_image_size and height <= self.max_image_size:
+                return image_data
+            
+            # Вычисляем новые размеры, сохраняя пропорции
+            if width > height:
+                new_width = self.max_image_size
+                new_height = int(height * (self.max_image_size / width))
+            else:
+                new_height = self.max_image_size
+                new_width = int(width * (self.max_image_size / height))
+            
+            # Изменяем размер
+            resized_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            
+            # Сохраняем в bytes
+            output = io.BytesIO()
+            resized_image.save(output, format='JPEG', quality=95)
+            return output.getvalue()
+            
+        except Exception as e:
+            logger.error(f"Error resizing image: {str(e)}")
+            return image_data
 
     async def _make_request(self, method: str, url: str, return_bytes: bool = False, **kwargs) -> tuple:
         """
@@ -249,6 +285,10 @@ class RunningHubAPI:
 
             workflow_id = self.current_account.workflows["product"]
             logger.info(f"Using RunningHub account with workflow_id: {workflow_id}")
+
+            # Уменьшаем размер изображений
+            product_image = self._resize_image(product_image)
+            background_image = self._resize_image(background_image)
 
             # Загружаем изображения
             product_filename = await self.upload_image(product_image, "product.jpg")
