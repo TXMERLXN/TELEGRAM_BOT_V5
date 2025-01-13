@@ -176,6 +176,8 @@ class RunningHubAPI:
             logger.info(f"Creating task with downloaded photos")
             logger.info(f"Product image: {product_path} ({product_size / 1024:.1f} KB)")
             logger.info(f"Background image: {background_path} ({background_size / 1024:.1f} KB)")
+            logger.info(f"API URL: {self.api_url}/tasks")
+            logger.info(f"Workflow ID: {self.workflow_id}")
 
             # Создаем form-data с файлами
             data = aiohttp.FormData()
@@ -190,12 +192,21 @@ class RunningHubAPI:
             data.add_field('workflow_id', self.workflow_id)
 
             async with self.get_session() as session:
+                # Логируем заголовки запроса
+                headers = {
+                    'Authorization': f'Bearer {self.api_key[:8]}...',  # Логируем только начало токена
+                    'Accept': 'application/json'
+                }
+                logger.info(f"Request headers: {headers}")
+
                 async with session.post(
                     f"{self.api_url}/tasks",
                     data=data,
+                    headers=headers,
                     timeout=30
                 ) as response:
                     response_text = await response.text()
+                    logger.info(f"Response headers: {dict(response.headers)}")
                     logger.debug(f"API response: {response.status} - {response_text}")
                     
                     try:
