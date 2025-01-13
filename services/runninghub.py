@@ -276,6 +276,7 @@ class RunningHubAPI:
         """
         Генерирует фотографию продукта с фоном
         """
+        self.current_account = None
         try:
             # Получаем доступный аккаунт для генерации
             self.current_account = await account_manager.get_available_account("product")
@@ -336,8 +337,9 @@ class RunningHubAPI:
             return None
         finally:
             if self.current_account:
-                await account_manager.release_account(self.current_account)
+                account = self.current_account
                 self.current_account = None
+                await account_manager.release_account(account)
 
     async def get_generation_status(self, task_id: str) -> tuple[str, Optional[str]]:
         """
