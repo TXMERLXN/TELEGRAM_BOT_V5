@@ -1,3 +1,9 @@
+<!-- CASCADE_GUIDELINES
+This file contains critical project guidelines and rules.
+AI assistants must check this file before making any changes to the project.
+Version: 1.0
+-->
+
 # AI Product Photo Generator Bot
 
 Telegram бот для генерации профессиональных фотографий продуктов с использованием искусственного интеллекта.
