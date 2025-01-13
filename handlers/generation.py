@@ -42,16 +42,26 @@ async def init_runninghub(bot: Bot):
 logger = logging.getLogger(__name__)
 
 @router.message(Command("generate"))
-async def start_generation(message: Message, state: FSMContext):
+@router.callback_query(F.data == "generate")
+async def start_generation(event: Message | CallbackQuery, state: FSMContext):
     """Начало процесса генерации"""
-    logger.info("Начало генерации фото продукта")
+    logger.info(f"User {event.from_user.id} started generation")
+    
+    # Очищаем предыдущее состояние
+    await state.clear()
     await state.set_state(GenerationState.waiting_for_product)
-    await message.answer(SEND_PRODUCT_PHOTO, reply_markup=get_cancel_keyboard())
+    
+    # Отправляем сообщение в зависимости от типа события
+    if isinstance(event, CallbackQuery):
+        await event.message.answer(SEND_PRODUCT_PHOTO, reply_markup=get_cancel_keyboard())
+        await event.answer()
+    else:
+        await event.answer(SEND_PRODUCT_PHOTO, reply_markup=get_cancel_keyboard())
 
 @router.message(GenerationState.waiting_for_product, F.photo)
 async def handle_product_photo(message: Message, state: FSMContext):
     """Обработка фото продукта"""
-    logger.info("Получена фотография продукта")
+    logger.info(f"User {message.from_user.id} sent product photo")
     await state.update_data(product_photo=message.photo[-1].file_id)
     await state.set_state(GenerationState.waiting_for_background)
     await message.answer(SEND_BACKGROUND_PHOTO, reply_markup=get_back_keyboard())
@@ -59,7 +69,7 @@ async def handle_product_photo(message: Message, state: FSMContext):
 @router.message(GenerationState.waiting_for_background, F.photo)
 async def handle_background_photo(message: Message, state: FSMContext):
     """Обработка фото фона"""
-    logger.info("Получена фотография фона")
+    logger.info(f"User {message.from_user.id} sent background photo")
     
     # Получаем сохраненные данные
     data = await state.get_data()
@@ -90,7 +100,7 @@ async def handle_background_photo(message: Message, state: FSMContext):
         asyncio.create_task(process_generation_task(message, state, task))
         
     except Exception as e:
-        logger.error(f"Ошибка при создании задачи: {str(e)}")
+        logger.error(f"Error creating task: {str(e)}")
         await message.answer(GENERATION_FAILED)
         await state.clear()
 
@@ -108,7 +118,7 @@ async def process_generation_task(message: Message, state: FSMContext, task):
         else:
             await message.answer(PROCESSING_FAILED)
     except Exception as e:
-        logger.error(f"Ошибка при обработке задачи: {str(e)}")
+        logger.error(f"Error processing task: {str(e)}")
         await message.answer(PROCESSING_FAILED)
     finally:
         await state.clear()
@@ -122,6 +132,7 @@ async def handle_invalid_photo(message: Message):
 @router.callback_query(F.data == "cancel")
 async def cancel_generation(callback: CallbackQuery, state: FSMContext):
     """Отмена процесса генерации"""
+    logger.info(f"User {callback.from_user.id} cancelled generation")
     await state.clear()
     await callback.message.answer("Генерация отменена", reply_markup=get_main_menu_keyboard())
     await callback.answer()
@@ -129,10 +140,19 @@ async def cancel_generation(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "back")
 async def go_back(callback: CallbackQuery, state: FSMContext):
     """Возврат к предыдущему шагу"""
+    logger.info(f"User {callback.from_user.id} went back")
     current_state = await state.get_state()
     
     if current_state == GenerationState.waiting_for_background:
         await state.set_state(GenerationState.waiting_for_product)
         await callback.message.answer(SEND_PRODUCT_PHOTO, reply_markup=get_cancel_keyboard())
     
+    await callback.answer()
+
+@router.callback_query(F.data == "menu")
+async def back_to_menu(callback: CallbackQuery, state: FSMContext):
+    """Возврат в главное меню"""
+    logger.info(f"User {callback.from_user.id} returned to menu")
+    await state.clear()
+    await callback.message.answer("Вы вернулись в главное меню", reply_markup=get_main_menu_keyboard())
     await callback.answer()
