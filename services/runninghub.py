@@ -45,7 +45,18 @@ class RunningHubAPI:
     async def get_session(self):
         """Получение сессии с автоматическим закрытием"""
         if not self.session:
-            self.session = aiohttp.ClientSession()
+            timeout = aiohttp.ClientTimeout(
+                total=60,  # Total timeout
+                connect=10,  # Connection timeout
+                sock_read=30  # Socket read timeout
+            )
+            self.session = aiohttp.ClientSession(
+                timeout=timeout,
+                headers={
+                    'Accept': 'application/json',
+                    'X-API-Key': self.api_key
+                }
+            )
             logger.info("Created new aiohttp session")
         try:
             yield self.session
@@ -122,7 +133,8 @@ class RunningHubAPI:
             
         except Exception as e:
             logger.error(f"Error processing photos: {str(e)}")
-            return None
+            # Не перехватываем исключение, чтобы TaskQueue мог попробовать другой аккаунт
+            raise
         finally:
             # Удаляем временные файлы
             try:
@@ -157,63 +169,78 @@ class RunningHubAPI:
         
     async def create_task(self, product_path: str, background_path: str) -> Optional[str]:
         """Создание задачи в RunningHub"""
-        try:
-            # Создаем form-data с файлами
-            data = aiohttp.FormData()
-            data.add_field('product_image',
-                          open(product_path, 'rb'),
-                          filename='product.jpg',
-                          content_type='image/jpeg')
-            data.add_field('background_image',
-                          open(background_path, 'rb'),
-                          filename='background.jpg',
-                          content_type='image/jpeg')
-            data.add_field('workflow_id', self.workflow_id)
-            
-            # Логируем данные запроса
-            logger.info(f"Creating task with workflow_id: {self.workflow_id}")
-            logger.info(f"Product image path: {product_path}")
-            logger.info(f"Background image path: {background_path}")
-            logger.info(f"API URL: {self.api_url}/tasks")
-            logger.info(f"API Key (first 8 chars): {self.api_key[:8]}...")
-            
-            headers = {
-                'Accept': 'application/json',
-                'X-API-Key': self.api_key
-            }
-            
-            async with self.get_session() as session:
-                async with session.post(
-                    f"{self.api_url}/tasks",
-                    data=data,
-                    headers=headers,
-                    timeout=30
-                ) as response:
-                    response_text = await response.text()
-                    logger.debug(f"API response: {response.status} - {response_text}")
-                    
-                    if response.status == 200:
-                        result = await response.json()
-                        task_id = result.get('task_id')
-                        if not task_id:
-                            logger.error(f"No task_id in response: {result}")
-                            return None
-                        logger.info(f"Successfully created task: {task_id}")
-                        return task_id
-                    else:
+        for attempt in range(self.max_retries):
+            try:
+                # Проверяем размер файлов и логируем информацию
+                product_size = os.path.getsize(product_path)
+                background_size = os.path.getsize(background_path)
+                logger.info(f"Attempting to create task (attempt {attempt + 1}/{self.max_retries})")
+                logger.info(f"Product image: {product_path} ({product_size / 1024:.1f} KB)")
+                logger.info(f"Background image: {background_path} ({background_size / 1024:.1f} KB)")
+
+                # Создаем form-data с файлами
+                data = aiohttp.FormData()
+                data.add_field('product_image',
+                            open(product_path, 'rb'),
+                            filename='product.jpg',
+                            content_type='image/jpeg')
+                data.add_field('background_image',
+                            open(background_path, 'rb'),
+                            filename='background.jpg',
+                            content_type='image/jpeg')
+                data.add_field('workflow_id', self.workflow_id)
+
+                async with self.get_session() as session:
+                    async with session.post(
+                        f"{self.api_url}/tasks",
+                        data=data,
+                        timeout=30
+                    ) as response:
+                        response_text = await response.text()
+                        logger.debug(f"API response: {response.status} - {response_text}")
+                        logger.debug(f"Response headers: {dict(response.headers)}")
+
                         try:
-                            error_msg = await response.json()
-                        except:
-                            error_msg = response_text
-                        logger.error(f"Error creating task: {response.status} - {error_msg}")
-                        return None
-                    
-        except Exception as e:
-            logger.error(f"Error creating task: {str(e)}")
-            if isinstance(e, aiohttp.ClientError):
-                logger.error(f"Client error details: {str(e.__dict__)}")
-            return None
-            
+                            result = await response.json()
+                        except Exception as e:
+                            logger.error(f"Failed to parse JSON response: {response_text}")
+                            logger.error(f"Parse error: {str(e)}")
+                            if attempt < self.max_retries - 1:
+                                await asyncio.sleep(self.retry_delay)
+                                continue
+                            return None
+
+                        if response.status == 200:
+                            task_id = result.get('task_id')
+                            if not task_id:
+                                logger.error(f"No task_id in response: {result}")
+                                return None
+                            logger.info(f"Successfully created task: {task_id}")
+                            return task_id
+                        else:
+                            error_code = result.get('code')
+                            error_msg = result.get('msg')
+                            error_data = result.get('data')
+                            logger.error(f"API Error - Status: {response.status}, Code: {error_code}, Message: {error_msg}, Data: {error_data}")
+                            
+                            if response.status == 500 and attempt < self.max_retries - 1:
+                                logger.info(f"Retrying after server error (attempt {attempt + 1})")
+                                await asyncio.sleep(self.retry_delay)
+                                continue
+                            return None
+
+            except Exception as e:
+                logger.error(f"Error creating task: {str(e)}")
+                if isinstance(e, aiohttp.ClientError):
+                    logger.error(f"Client error details: {str(e.__dict__)}")
+                if attempt < self.max_retries - 1:
+                    await asyncio.sleep(self.retry_delay)
+                    continue
+                return None
+
+        logger.error("All retry attempts failed")
+        return None
+
     async def _wait_for_result(self, task_id: str) -> Optional[str]:
         """Ожидание результата генерации"""
         start_time = asyncio.get_event_loop().time()
@@ -225,15 +252,9 @@ class RunningHubAPI:
                 
             try:
                 logger.debug(f"Checking status for task {task_id}")
-                headers = {
-                    'Accept': 'application/json',
-                    'X-API-Key': self.api_key
-                }
-                
                 async with self.get_session() as session:
                     async with session.get(
                         f"{self.api_url}/tasks/{task_id}",
-                        headers=headers,
                         timeout=10
                     ) as response:
                         response_text = await response.text()

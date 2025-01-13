@@ -92,19 +92,44 @@ class TaskQueue:
         if not self.bot:
             raise RuntimeError("TaskQueue not initialized. Call setup() first")
             
-        account = self.get_available_account()
-        if not account or not account.api:
-            logger.warning("No available accounts for processing")
-            return None
-            
-        try:
-            account.increment_tasks()
+        # Пробуем все доступные аккаунты
+        tried_accounts = set()
+        
+        while len(tried_accounts) < len(self.accounts):
+            account = self.get_available_account()
+            if not account or not account.api:
+                logger.warning("No available accounts for processing")
+                return None
+                
+            if account.api_key in tried_accounts:
+                await asyncio.sleep(1)  # Небольшая задержка перед повторной проверкой
+                continue
+                
+            tried_accounts.add(account.api_key)
             logger.info(f"Processing photos with account {account.api_key[:8]}... (tasks: {account.current_tasks})")
-            result = await account.api.process_photos(product_photo_id, background_photo_id, user_id)
-            return result
-        finally:
-            account.decrement_tasks()
-            logger.info(f"Finished processing with account {account.api_key[:8]}... (tasks: {account.current_tasks})")
+            
+            try:
+                account.increment_tasks()
+                result = await account.api.process_photos(
+                    product_photo_id=product_photo_id,
+                    background_photo_id=background_photo_id,
+                    user_id=user_id
+                )
+                
+                if result:
+                    logger.info(f"Successfully processed photos with account {account.api_key[:8]}...")
+                    return result
+                    
+                logger.warning(f"Failed to process with account {account.api_key[:8]}..., trying next account")
+                
+            except Exception as e:
+                logger.error(f"Error processing with account {account.api_key[:8]}...: {str(e)}")
+            finally:
+                account.decrement_tasks()
+                logger.info(f"Finished processing with account {account.api_key[:8]}... (tasks: {account.current_tasks})")
+                
+        logger.error("All accounts failed to process photos")
+        return None
             
     async def cancel_all_tasks(self):
         """Отмена всех активных задач"""
