@@ -2,12 +2,12 @@ import aiohttp
 import json
 import logging
 import asyncio
-from typing import Optional
+from typing import Optional, Dict
 from PIL import Image
 import io
 from config import load_config
 from .task_queue import task_queue
-from .account_manager import account_manager
+from .account_manager import account_manager, RunningHubAccount
 
 config = load_config()
 logger = logging.getLogger(__name__)
