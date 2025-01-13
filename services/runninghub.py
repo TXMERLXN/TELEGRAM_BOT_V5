@@ -129,43 +129,38 @@ class RunningHubAPI:
         
         return None
 
-    async def _get_telegram_file_path(self, file_id: str) -> str:
-        """
-        Получает путь к файлу в Telegram
-        """
-        url = f"https://api.telegram.org/bot{config.tg_bot.token}/getFile"
-        params = {"file_id": file_id}
-        
-        status, response_text = await self._make_request('get', url, params=params)
-        if status == 200 and response_text:
-            try:
-                data = json.loads(response_text)
-                if data.get("ok"):
-                    return data["result"]["file_path"]
-            except json.JSONDecodeError:
-                pass
-        logger.error(f"Failed to get file path from Telegram: {status}")
-        return None
+    async def _get_telegram_file_path(self, file_id: str) -> Optional[str]:
+        """Получает путь к файлу в Telegram"""
+        try:
+            file = await self.bot.get_file(file_id)
+            return file.file_path
+        except Exception as e:
+            logger.error(f"Error getting file path from Telegram: {str(e)}")
+            return None
 
     async def _download_telegram_file(self, file_id: str) -> Optional[bytes]:
         """Скачивает файл из Telegram"""
         try:
-            file = await self.bot.get_file(file_id)
-            if not file or not file.file_path:
-                logger.error(f"Failed to get file info for {file_id}")
+            # Получаем путь к файлу
+            file_path = await self._get_telegram_file_path(file_id)
+            if not file_path:
+                logger.error("Failed to get file path from Telegram")
                 return None
 
-            url = f"https://api.telegram.org/file/bot{self.bot_token}/{file.file_path}"
-            status, response = await self._make_request('get', url, return_bytes=True)
+            # Формируем URL для скачивания
+            url = f"https://api.telegram.org/file/bot{self.bot.token}/{file_path}"
             
-            if status == 200 and response:
-                return response
-            
-            logger.error(f"Failed to download file from Telegram: {status}")
-            return None
-            
+            # Скачиваем файл
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    if response.status == 200:
+                        return await response.read()
+                    else:
+                        logger.error(f"Failed to download file from Telegram: {response.status}")
+                        return None
+                        
         except Exception as e:
-            logger.error(f"Error downloading Telegram file: {str(e)}")
+            logger.error(f"Error downloading file from Telegram: {str(e)}")
             return None
 
     async def _wait_for_task_completion(self, task_id: str, max_attempts: int = 120, delay: int = 5) -> Optional[str]:
