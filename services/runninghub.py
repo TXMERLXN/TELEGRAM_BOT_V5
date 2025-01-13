@@ -161,22 +161,44 @@ class RunningHubAPI:
                 'Accept': 'application/json'
             }
             
-            async with self.get_session().post(
-                f"{self.api_url}/uc/openapi/accountStatus",
-                json=data,
-                headers=headers,
-                timeout=30
-            ) as response:
-                result = await response.json()
-                logger.debug(f"Account status response: {result}")
-                
-                if response.status == 200 and result.get('code') == 0:
+            try:
+                async with self.get_session().post(
+                    f"{self.api_url}/uc/openapi/accountStatus",
+                    json=data,
+                    headers=headers,
+                    timeout=30
+                ) as response:
+                    response_text = await response.text()
+                    logger.debug(f"Account status response: {response_text}")
+                    
+                    if response.status != 200:
+                        logger.error(f"Error response from account status API: Status {response.status}, Body: {response_text}")
+                        return None
+                        
+                    try:
+                        result = await response.json()
+                    except Exception as e:
+                        logger.error(f"Failed to parse account status JSON response: {response_text}, Error: {str(e)}")
+                        return None
+                    
+                    if result.get('code') != 0:
+                        error_msg = result.get('msg', 'Unknown error')
+                        logger.error(f"Account status API error: {error_msg}")
+                        return None
+                    
                     task_count = int(result.get('data', {}).get('currentTaskCounts', '0'))
+                    logger.debug(f"Current task count: {task_count}")
                     return task_count > 0
+                    
+            except asyncio.TimeoutError:
+                logger.error("Timeout while checking account status")
+                return None
+            except Exception as e:
+                logger.error(f"HTTP error while checking account status: {str(e)}")
                 return None
                 
         except Exception as e:
-            logger.error(f"Error checking account status: {str(e)}")
+            logger.error(f"Error checking account status: {str(e)}", exc_info=True)
             return None
 
     async def _wait_for_result(self, task_id: str) -> Optional[str]:
@@ -199,10 +221,14 @@ class RunningHubAPI:
                 try:
                     # Проверяем статус аккаунта
                     is_busy = await self._check_account_status()
-                    if is_busy:
+                    if is_busy is None:
+                        logger.warning("Failed to check account status, continuing with result check")
+                    elif is_busy:
                         logger.debug(f"Account is busy, waiting... [{attempt+1}/{max_attempts}]")
                         await asyncio.sleep(5)
                         continue
+                    else:
+                        logger.debug(f"Account is not busy, proceeding with result check [{attempt+1}/{max_attempts}]")
                     
                     # Пробуем получить результат
                     async with self.get_session().post(
