@@ -84,9 +84,13 @@ class TaskQueue:
         """Возвращает доступный аккаунт с наименьшим количеством задач"""
         available_accounts = [acc for acc in self.accounts if acc.is_available]
         if not available_accounts:
+            logger.warning(f"No available accounts. Total accounts: {len(self.accounts)}")
             return None
-        return min(available_accounts, key=lambda x: x.current_tasks)
-        
+            
+        selected_account = min(available_accounts, key=lambda x: x.current_tasks)
+        logger.info(f"Selected account {selected_account.api_key[:8]}... (current tasks: {selected_account.current_tasks})")
+        return selected_account
+
     async def process_photos(self, product_photo_id: str, background_photo_id: str, user_id: int) -> Optional[str]:
         """Обработка фотографий через доступный аккаунт"""
         if not self.bot:
@@ -94,6 +98,7 @@ class TaskQueue:
             
         # Пробуем все доступные аккаунты
         tried_accounts = set()
+        logger.info(f"Starting photo processing. Total accounts available: {len(self.accounts)}")
         
         while len(tried_accounts) < len(self.accounts):
             account = self.get_available_account()
@@ -102,14 +107,17 @@ class TaskQueue:
                 return None
                 
             if account.api_key in tried_accounts:
-                await asyncio.sleep(1)  # Небольшая задержка перед повторной проверкой
+                logger.debug(f"Account {account.api_key[:8]}... already tried, waiting for other accounts")
+                await asyncio.sleep(1)
                 continue
                 
             tried_accounts.add(account.api_key)
-            logger.info(f"Processing photos with account {account.api_key[:8]}... (tasks: {account.current_tasks})")
+            logger.info(f"Attempting account {account.api_key[:8]}... (tried accounts: {len(tried_accounts)}/{len(self.accounts)})")
             
             try:
                 account.increment_tasks()
+                logger.info(f"Processing photos with account {account.api_key[:8]}... (tasks: {account.current_tasks})")
+                
                 result = await account.api.process_photos(
                     product_photo_id=product_photo_id,
                     background_photo_id=background_photo_id,
@@ -120,15 +128,15 @@ class TaskQueue:
                     logger.info(f"Successfully processed photos with account {account.api_key[:8]}...")
                     return result
                     
-                logger.warning(f"Failed to process with account {account.api_key[:8]}..., trying next account")
+                logger.warning(f"Failed to process with account {account.api_key[:8]}..., will try next account")
                 
             except Exception as e:
-                logger.error(f"Error processing with account {account.api_key[:8]}...: {str(e)}")
+                logger.error(f"Error with account {account.api_key[:8]}...: {str(e)}")
             finally:
                 account.decrement_tasks()
                 logger.info(f"Finished processing with account {account.api_key[:8]}... (tasks: {account.current_tasks})")
                 
-        logger.error("All accounts failed to process photos")
+        logger.error(f"All {len(self.accounts)} accounts failed to process photos")
         return None
             
     async def cancel_all_tasks(self):
