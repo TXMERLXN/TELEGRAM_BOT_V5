@@ -119,6 +119,36 @@ class RunningHubAPI:
             logger.error(f"Error in create_task: {str(e)}")
             raise
 
+    async def _check_task_status(self, task_id: str) -> Optional[str]:
+        """Проверка статуса задачи"""
+        try:
+            data = {
+                "taskId": task_id,
+                "apiKey": self.api_key
+            }
+            
+            headers = {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            }
+            
+            async with self.get_session().post(
+                f"{self.api_url}/task/openapi/status",
+                json=data,
+                headers=headers,
+                timeout=30
+            ) as response:
+                result = await response.json()
+                logger.debug(f"Task status response: {result}")
+                
+                if response.status == 200 and result.get('code') == 0:
+                    return result.get('data', {}).get('taskStatus')
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error checking task status: {str(e)}")
+            return None
+
     async def _wait_for_result(self, task_id: str) -> Optional[str]:
         """Ожидание результата генерации"""
         try:
@@ -135,6 +165,17 @@ class RunningHubAPI:
             max_attempts = 60  # Максимальное количество попыток (5 минут при задержке в 5 секунд)
             for attempt in range(max_attempts):
                 try:
+                    # Проверяем статус задачи
+                    status = await self._check_task_status(task_id)
+                    if status == "FAILED":
+                        logger.error(f"Task {task_id} failed")
+                        return None
+                    elif status == "QUEUED" or status == "RUNNING":
+                        logger.debug(f"Task {task_id} is {status}, waiting...")
+                        await asyncio.sleep(5)
+                        continue
+                    
+                    # Пробуем получить результат
                     async with self.get_session().post(
                         f"{self.api_url}/task/openapi/outputs",
                         json=data,
@@ -158,7 +199,10 @@ class RunningHubAPI:
                             
                         if result.get('code') != 0:
                             error_msg = result.get('msg', 'Unknown error')
-                            logger.error(f"API error: {error_msg}")
+                            if error_msg == 'APIKEY_TASK_IS_RUNNING':
+                                logger.debug(f"Task is still running, waiting... [{attempt+1}/{max_attempts}]")
+                            else:
+                                logger.error(f"API error: {error_msg}")
                             await asyncio.sleep(5)
                             continue
                             
