@@ -135,7 +135,7 @@ class RunningHubAPI:
 
     async def upload_image(self, image_data: bytes, filename: str, account: RunningHubAccount) -> Optional[str]:
         """Загружает изображение в RunningHub"""
-        url = f"{self.api_url}/task/openapi/upload"
+        url = f"{self.api_url}/openapi/upload"
         
         for attempt in range(self.max_retries):
             try:
@@ -204,7 +204,7 @@ class RunningHubAPI:
         max_attempts: максимальное количество попыток (120 попыток * 5 секунд = 10 минут)
         delay: задержка между попытками в секундах
         """
-        url = f"{self.api_url}/task/openapi/outputs"
+        url = f"{self.api_url}/openapi/outputs"
         account = self.task_accounts.get(task_id)
         if not account:
             logger.error(f"No account found for task {task_id}")
@@ -294,7 +294,7 @@ class RunningHubAPI:
 
     async def create_task(self, product_image: str, background_image: str, account: RunningHubAccount) -> Optional[dict]:
         """Создает задачу в RunningHub"""
-        url = f"{self.api_url}/task/openapi/submit/workflow"
+        url = f"{self.api_url}/openapi/submit/workflow"
         
         try:
             # Получаем workflow ID для продукта
@@ -338,7 +338,7 @@ class RunningHubAPI:
         Получает статус генерации и URL результата
         Возвращает: (status, result_url)
         """
-        url = f"{self.api_url}/task/openapi/status"  # Исправляем endpoint для проверки статуса
+        url = f"{self.api_url}/openapi/status"  # Исправляем endpoint для проверки статуса
         account = self.task_accounts.get(task_id)
         if not account:
             logger.error(f"No account found for task {task_id}")
@@ -369,7 +369,7 @@ class RunningHubAPI:
                     
                     if task_status == "SUCCEEDED":
                         # Получаем результат через отдельный endpoint
-                        result_url = f"{self.api_url}/task/openapi/outputs"
+                        result_url = f"{self.api_url}/openapi/outputs"
                         result_payload = {
                             "taskId": task_id,
                             "apiKey": account.api_key
