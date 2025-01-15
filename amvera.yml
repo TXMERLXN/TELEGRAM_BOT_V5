@@ -8,8 +8,12 @@ build:
   requirementsPath: requirements.txt
 
 run:
-  command: python bot.py
+  command: gunicorn --worker-class aiohttp.GunicornWebWorker --bind 0.0.0.0:$PORT bot_new:app
   persistenceMount: /data
+
+monitoring:
+  sentry:
+    dsn: '{{ SENTRY_DSN }}'
 
 env:
   - name: BOT_TOKEN

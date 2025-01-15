@@ -9,10 +9,9 @@ class RunningHubAccount:
     max_tasks: int = 5
 
 class RunningHubAPI:
-    BASE_URL = "https://api.runninghub.com"
-
-    def __init__(self):
+    def __init__(self, api_url: str = "https://api.runninghub.com"):
         self._session = None
+        self.api_url = api_url
 
     async def _get_session(self):
         if self._session is None or self._session.closed:
@@ -23,7 +22,7 @@ class RunningHubAPI:
         """Загружает изображение в RunningHub"""
         session = await self._get_session()
         async with session.post(
-            f"{self.BASE_URL}/task/openapi/upload",
+            f"{self.api_url}/task/openapi/upload",
             headers={"Authorization": f"Bearer {api_key}"},
             data={
                 "file": image_url,
@@ -44,45 +43,54 @@ class RunningHubAPI:
     ) -> Optional[str]:
         """Создает задачу в RunningHub"""
         session = await self._get_session()
-        product_file = await self.upload_image(api_key, product_image_url)
-        if not product_file:
-            return None
+        
+        try:
+            product_file = await self.upload_image(api_key, product_image_url)
+            if not product_file:
+                return None
 
-        background_file = await self.upload_image(api_key, background_image_url)
-        if not background_file:
-            return None
+            background_file = await self.upload_image(api_key, background_image_url)
+            if not background_file:
+                return None
 
-        payload = {
-            "workflowId": workflow_id,
-            "apiKey": api_key,
-            "nodeInfoList": [
-                {
-                    "nodeId": "2",
-                    "fieldName": "image",
-                    "fieldValue": product_file
-                },
-                {
-                    "nodeId": "32",
-                    "fieldName": "image",
-                    "fieldValue": background_file
-                }
-            ]
-        }
+            payload = {
+                "workflowId": workflow_id,
+                "apiKey": api_key,
+                "nodeInfoList": [
+                    {
+                        "nodeId": "2",
+                        "fieldName": "image",
+                        "fieldValue": product_file
+                    },
+                    {
+                        "nodeId": "32",
+                        "fieldName": "image",
+                        "fieldValue": background_file
+                    }
+                ]
+            }
 
-        async with session.post(
-            f"{self.BASE_URL}/task/openapi/create",
-            json=payload
-        ) as response:
-            if response.status == 200:
-                data = await response.json()
-                return data.get("data", {}).get("taskId")
+            async with session.post(
+                f"{self.api_url}/task/openapi/create",
+                json=payload
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    if data.get("code") == 805:  # Task in queue
+                        return "QUEUED"
+                    return data.get("data", {}).get("taskId")
+                return None
+        except Exception as e:
+            # Логируем ошибку с полным стектрейсом
+            import logging
+            logging.error(f"RunningHub API error: {str(e)}", exc_info=True)
             return None
 
     async def get_task_outputs(self, api_key: str, task_id: str) -> Optional[List[Dict[str, Any]]]:
         """Получает результаты выполнения задачи"""
         session = await self._get_session()
         async with session.post(
-            f"{self.BASE_URL}/task/openapi/outputs",
+            f"{self.api_url}/task/openapi/outputs",
             json={
                 "taskId": task_id,
                 "apiKey": api_key
@@ -97,7 +105,7 @@ class RunningHubAPI:
         """Проверяет статус аккаунта"""
         session = await self._get_session()
         async with session.post(
-            f"{self.BASE_URL}/uc/openapi/accountStatus",
+            f"{self.api_url}/uc/openapi/accountStatus",
             json={"apikey": api_key}
         ) as response:
             if response.status == 200:

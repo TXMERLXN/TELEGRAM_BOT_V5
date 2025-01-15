@@ -1,68 +1,57 @@
-from dataclasses import dataclass
-from typing import Dict, List, Optional
 import asyncio
-import logging
-from datetime import datetime
-
-logger = logging.getLogger(__name__)
+from typing import Dict, Optional
+from dataclasses import dataclass
+from .runninghub import RunningHubAccount, RunningHubAPI
 
 @dataclass
-class RunningHubAccount:
-    api_key: str
-    workflows: Dict[str, str]  # type -> workflow_id mapping
-    max_jobs: int
-    active_jobs: int = 0
-    last_used: datetime = None
-
-    def get_workflow_id(self, workflow_type: str) -> Optional[str]:
-        """Получает ID workflow по типу"""
-        return self.workflows.get(workflow_type)
+class AccountStatus:
+    active_tasks: int = 0
+    max_tasks: int = 5
 
 class AccountManager:
-    def __init__(self):
-        self.accounts = []
+    def __init__(self, runninghub_api: RunningHubAPI):
+        self.runninghub_api = runninghub_api
+        self.accounts: Dict[str, RunningHubAccount] = {}
+        self.account_status: Dict[str, AccountStatus] = {}
         self.lock = asyncio.Lock()
 
-    def add_account(self, api_key: str, workflows: Dict[str, str], max_jobs: int = 5) -> None:
-        """Добавляет новый аккаунт RunningHub"""
-        account = RunningHubAccount(api_key=api_key, workflows=workflows, max_jobs=max_jobs)
-        self.accounts.append(account)
-        logger.info(f"Added new RunningHub account with workflows: {list(workflows.keys())}")
+    def add_account(self, api_key: str, workflow_id: str, max_tasks: int = 5) -> None:
+        """Добавляет аккаунт в пул"""
+        account = RunningHubAccount(
+            api_key=api_key,
+            workflow_id=workflow_id,
+            max_tasks=max_tasks
+        )
+        self.accounts[api_key] = account
+        self.account_status[api_key] = AccountStatus(max_tasks=max_tasks)
 
-    async def get_available_account(self, workflow_type: str) -> Optional[RunningHubAccount]:
-        """Получает доступный аккаунт для указанного типа задачи"""
+    async def get_available_account(self) -> Optional[str]:
+        """Возвращает доступный аккаунт"""
         async with self.lock:
-            # Находим аккаунт с наименьшим количеством активных задач
-            available_accounts = [acc for acc in self.accounts if workflow_type in acc.workflows]
-            if not available_accounts:
-                logger.error(f"No accounts available for workflow type: {workflow_type}")
-                return None
+            for api_key, status in self.account_status.items():
+                if status.active_tasks < status.max_tasks:
+                    status.active_tasks += 1
+                    return api_key
+            return None
 
-            min_jobs_account = min(available_accounts, key=lambda x: x.active_jobs)
-            if min_jobs_account.active_jobs >= min_jobs_account.max_jobs:
-                logger.error("All accounts are at maximum capacity")
-                return None
-
-            min_jobs_account.active_jobs += 1
-            min_jobs_account.last_used = datetime.now()
-            logger.debug(f"Using account with {min_jobs_account.active_jobs} active jobs")
-            return min_jobs_account
-
-    async def release_account(self, account: Optional[RunningHubAccount]) -> None:
-        """Освобождает аккаунт после завершения задачи"""
-        if not account:
-            return
-
+    async def release_account(self, api_key: str) -> None:
+        """Освобождает аккаунт"""
         async with self.lock:
-            account.active_jobs = max(0, account.active_jobs - 1)
-            logger.debug(f"Released account, now has {account.active_jobs} active jobs")
+            if api_key in self.account_status:
+                self.account_status[api_key].active_tasks -= 1
 
-    async def release_all_accounts(self) -> None:
-        """Освобождает все аккаунты"""
-        async with self.lock:
-            for account in self.accounts:
-                account.active_jobs = 0
-            logger.info("Released all accounts")
+    async def check_accounts_status(self) -> Dict[str, Dict[str, Any]]:
+        """Проверяет статус всех аккаунтов"""
+        results = {}
+        for api_key in self.accounts:
+            status = await self.runninghub_api.check_account_status(api_key)
+            if status:
+                results[api_key] = {
+                    "status": status,
+                    "local_status": self.account_status[api_key]
+                }
+        return results
 
-# Global instance
-account_manager = AccountManager()
+    async def close(self) -> None:
+        """Закрывает все аккаунты"""
+        await self.runninghub_api.close()
