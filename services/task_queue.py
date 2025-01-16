@@ -106,13 +106,16 @@ class TaskQueue:
                 if pending:
                     logger.warning(f"{len(pending)} callback tasks still pending")
                     for task in pending:
+                        if task._loop is not self.loop:
+                            logger.debug(f"Task {task.get_name()} belongs to different loop, skipping cancellation")
+                            continue
                         task.cancel()
                         try:
                             await task
                         except asyncio.CancelledError:
                             pass
                         except Exception as e:
-                            logger.error(f"Error cancelling pending task: {e}")
+                            logger.error(f"Error cancelling pending task: {e}", exc_info=True)
 
             # Освобождаем все аккаунты
             await self.account_manager.release_all_accounts()
