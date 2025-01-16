@@ -36,3 +36,4 @@ GENERATION_QUEUED = "Задача добавлена в очередь. Ожид
 GENERATION_COMPLETE = "Генерация завершена!"
 GENERATION_ERROR = "Произошла ошибка при генерации."
 GENERATION_CANCELLED = "Генерация отменена."
+IN_QUEUE = "Задача добавлена в очередь. Ожидайте результат."
