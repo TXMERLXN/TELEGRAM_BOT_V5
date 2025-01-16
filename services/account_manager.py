@@ -62,8 +62,8 @@ class AccountManager:
         for account in accounts.values():
             self.add_account(
                 api_key=account.api_key,
-                workflow_id=account.workflow_id,
-                max_tasks=account.max_tasks
+                workflow_id=account.workflows['product'],
+                max_tasks=account.max_jobs
             )
 
 account_manager = AccountManager()

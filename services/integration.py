@@ -16,12 +16,8 @@ class IntegrationService:
         """Инициализирует все компоненты"""
         # Преобразуем аккаунты в формат RunningHubAccount
         runninghub_accounts = {
-            account['api_key']: RunningHubAccount(
-                api_key=account['api_key'],
-                workflow_id=account['workflow_id'],
-                max_tasks=account['max_tasks']
-            )
-            for account in self.accounts.values()
+            account.api_key: account
+            for account in self.accounts
         }
         
         await self.account_manager.initialize(runninghub_accounts)
