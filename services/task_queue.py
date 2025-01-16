@@ -56,9 +56,10 @@ class TaskQueue:
                 task = self.queue.get_nowait()
                 if hasattr(task, 'callback') and task.callback:
                     try:
-                        # Создаем новую задачу в текущем event loop
+                        # Проверяем принадлежность callback к текущему loop
                         if asyncio.iscoroutinefunction(task.callback):
-                            asyncio.create_task(task.callback(None))
+                            if task.callback._loop == self.loop:
+                                await task.callback(None)
                         else:
                             # Если это не корутина, выполняем синхронно
                             await self.loop.run_in_executor(
