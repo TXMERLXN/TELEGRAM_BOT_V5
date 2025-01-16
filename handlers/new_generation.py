@@ -19,6 +19,7 @@ from messages import (
 )
 
 router = Router()
+router.callback_query()
 
 class GenerationStates(StatesGroup):
     waiting_for_product = State()
