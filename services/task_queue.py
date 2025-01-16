@@ -75,7 +75,8 @@ class TaskQueue:
                                 # Если это корутинная функция, создаем задачу
                                 task_coro = task.callback(None)
                                 if task_coro is not None:
-                                    asyncio.create_task(task_coro)
+                                    # Используем сохраненный loop для создания задачи
+                                    self.loop.create_task(task_coro)
                         else:
                             # Если это не корутина, выполняем синхронно через run_in_executor
                             await self.loop.run_in_executor(
