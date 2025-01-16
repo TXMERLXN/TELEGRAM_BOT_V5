@@ -1,133 +1,130 @@
+import asyncio
+import logging
 import os
 import sys
-import logging
-import asyncio
-import tempfile
-import fcntl
-from dotenv import load_dotenv
-from aiogram import Bot, Dispatcher
-from aiogram.enums import ParseMode
-from aiogram.types import CallbackQuery
-from aiogram.client.default import DefaultBotProperties
-from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
-from aiohttp import web
+from typing import Optional
 
-from config import config
-from handlers.base import router as base_router
-from handlers.new_generation import router as generation_router
-from services.integration import IntegrationService
-from services.task_queue import task_queue
+import uvloop
+from aiogram import Bot, Dispatcher
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
+from aiogram.types import ParseMode
+from aiogram.utils.executor import Executor
+
 from services.event_loop import event_loop_manager
+from services.task_queue import task_queue
+from services.integration import IntegrationService
+from states.generation import GenerationState
+from utils.single_instance import ensure_single_instance
 
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-
 logger = logging.getLogger(__name__)
 
-# Инициализация сервисов
-integration_service = IntegrationService(config.runninghub.accounts)
+# Глобальные переменные
+bot: Optional[Bot] = None
+dp: Optional[Dispatcher] = None
+integration_service: Optional[IntegrationService] = None
 
-def ensure_single_instance():
-    try:
-        lock_file = open(os.path.join(tempfile.gettempdir(), 'telegram_bot.lock'), 'w')
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except (IOError, BlockingIOError):
-        logger.error("Another instance of the bot is already running.")
-        sys.exit(1)
+def global_error_handler(update, exception):
+    """Глобальный обработчик необработанных исключений"""
+    logger.error(f"Unhandled exception: {exception}")
+    logger.error(f"Update: {update}")
+    return True
 
-async def global_error_handler(update, exception):
-    """Централизованная обработка необработанных исключений"""
-    logger.error(f"Unhandled error: {exception}")
-    # TODO: Реализовать отправку уведомления администратору
-    # await send_error_notification(exception)
-
-async def on_startup(bot: Bot, dispatcher: Dispatcher):
-    """Действия при запуске бота"""
-    logger.info("====== Starting bot ======")
+async def on_startup(dp: Dispatcher):
+    """Действия при старте бота"""
+    global bot, integration_service
     
-    try:
-        await integration_service.initialize()
-        logger.info("Successfully initialized integration service")
-        
-        # Запуск обработчика очереди с глобальным event loop
-        await task_queue.start()
-        
-        # Настройка webhook
-        await setup_webhook(bot)
-    except Exception as e:
-        logger.error(f"Failed to initialize bot: {str(e)}", exc_info=True)
-        sys.exit(1)
+    # Инициализация сервисов
+    integration_service = IntegrationService()
+    await integration_service.initialize()
     
-    logger.info("==========================")
-    logger.info("Starting bot")
+    # Регистрация обработчиков
+    dp.register_errors_handler(global_error_handler)
+    
+    # Настройка состояний
+    GenerationState.setup(dp)
+    
+    logger.info("Bot startup completed successfully")
 
-async def on_shutdown(bot: Bot, dispatcher: Dispatcher):
-    """Действия при завершении работы бота"""
+async def on_shutdown(dp: Dispatcher):
+    """Действия при остановке бота"""
+    global bot, dp, integration_service
+    
     logger.info("====== Shutting down bot ======")
     
-    try:
-        await task_queue.stop()
+    # Остановка сервисов
+    if integration_service:
         await integration_service.shutdown()
-        logger.info("Successfully shut down services")
-    except Exception as e:
-        logger.error(f"Error during shutdown: {str(e)}", exc_info=True)
+        logger.info("Successfully shut down integration service")
     
-    # Закрываем сессию бота
-    await bot.session.close()
-
-async def setup_webhook(bot: Bot):
-    WEBHOOK_URL = f"https://{config.WEBHOOK_HOST}/webhook/{config.BOT_TOKEN}"
-    await bot.set_webhook(
-        url=WEBHOOK_URL,
-        drop_pending_updates=True,
-        max_connections=100
-    )
-
-def setup_bot():
-    # Создание бота и диспетчера
-    bot = Bot(token=config.BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-    dp = Dispatcher()
-
-    # Регистрация роутеров
-    dp.include_router(base_router)
-    dp.include_router(generation_router)
-
-    # Регистрация глобального обработчика ошибок
-    dp.errors.register(global_error_handler)
-
-    # Настройка событий запуска и остановки
-    dp.startup.register(on_startup)
-    dp.shutdown.register(on_shutdown)
-
-    return bot, dp
+    # Остановка очереди задач
+    await task_queue.stop()
+    
+    # Закрытие соединений бота
+    if bot:
+        await bot.close()
+    
+    logger.info("Bot shutdown completed")
 
 def main():
-    # Обеспечение единственного экземпляра
+    """Основная функция запуска бота"""
+    # Проверка единственного экземпляра
     ensure_single_instance()
-
-    # Загрузка переменных окружения
-    load_dotenv()
-
-    # Настройка бота
-    bot, dp = setup_bot()
-
-    # Запуск бота
-    try:
-        # Выбор режима запуска в зависимости от конфигурации
-        if config.USE_WEBHOOK:
-            app = web.Application()
-            SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=f"/webhook/{config.BOT_TOKEN}")
-            setup_application(app, dp, bot=bot)
-            web.run_app(app, host=config.WEBHOOK_HOST, port=config.WEBHOOK_PORT)
-        else:
-            # Классический режим long polling
-            asyncio.run(dp.start_polling(bot))
-    except Exception as e:
-        logger.error(f"Bot startup failed: {e}", exc_info=True)
+    
+    # Установка политики event loop
+    uvloop.install()
+    
+    # Инициализация бота
+    bot_token = os.getenv('BOT_TOKEN')
+    if not bot_token:
+        logger.error("BOT_TOKEN не установлен!")
         sys.exit(1)
+    
+    global bot, dp
+    bot = Bot(token=bot_token, parse_mode=ParseMode.HTML)
+    storage = MemoryStorage()
+    dp = Dispatcher(bot, storage=storage)
+    
+    # Настройка webhook или long polling
+    use_webhook = os.getenv('USE_WEBHOOK', 'false').lower() == 'true'
+    
+    try:
+        if use_webhook:
+            # Webhook-режим
+            webhook_host = os.getenv('WEBHOOK_HOST', 'localhost')
+            webhook_port = int(os.getenv('WEBHOOK_PORT', 8080))
+            
+            executor = Executor(dp)
+            executor.on_startup(on_startup)
+            executor.on_shutdown(on_shutdown)
+            
+            executor.start_webhook(
+                webhook_host=webhook_host,
+                webhook_port=webhook_port,
+                skip_updates=True
+            )
+        else:
+            # Long polling режим
+            event_loop_manager.run(on_startup(dp))
+            
+            # Запуск polling
+            event_loop_manager.run(dp.start_polling(
+                skip_updates=True,
+                on_startup=on_startup,
+                on_shutdown=on_shutdown
+            ))
+    
+    except Exception as e:
+        logger.error(f"Ошибка при запуске бота: {e}")
+        sys.exit(1)
+    finally:
+        # Финальная остановка
+        event_loop_manager.close()
+        logger.info("Bot polling cancelled")
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
