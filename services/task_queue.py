@@ -56,18 +56,27 @@ class TaskQueue:
                 task = self.queue.get_nowait()
                 if hasattr(task, 'callback') and task.callback:
                     try:
-                        # Если callback - корутина, создаем новую задачу в текущем loop
+                        # Проверяем, что callback существует
+                        if task.callback is None:
+                            continue
+                            
+                        # Если callback - корутина, создаем задачу в текущем loop
                         if asyncio.iscoroutinefunction(task.callback):
-                            self.loop.create_task(task.callback(None))
+                            if asyncio.iscoroutine(task.callback):
+                                # Если это уже корутина, await напрямую
+                                await task.callback
+                            else:
+                                # Если это корутинная функция, создаем задачу
+                                await task.callback(None)
                         else:
-                            # Если это не корутина, выполняем синхронно
+                            # Если это не корутина, выполняем синхронно через run_in_executor
                             await self.loop.run_in_executor(
                                 None,
                                 task.callback,
                                 None
                             )
                     except Exception as e:
-                        logger.error(f"Error during callback execution: {e}")
+                        logger.error(f"Error during callback execution: {e}", exc_info=True)
                 self.queue.task_done()
 
             # Отменяем основной обработчик
