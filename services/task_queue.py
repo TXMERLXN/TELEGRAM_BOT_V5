@@ -6,6 +6,7 @@ from .account_manager import AccountManager
 from .runninghub import RunningHubAPI
 from .event_loop import event_loop_manager
 import time
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +27,10 @@ class TaskQueue:
         
         self.account_manager = account_manager
         self.runninghub_api = RunningHubAPI()
-        self._running = False
+        
+        # Потокобезопасный флаг состояния
+        self._running = threading.Event()
+        
         self._task = None
         self._lock = asyncio.Lock(loop=self.loop)
         self._tasks = set()  # Хранение всех активных задач
@@ -56,21 +60,30 @@ class TaskQueue:
 
     async def start(self):
         """Запуск обработчика очереди с использованием глобального event loop"""
-        if not self._running:
+        # Проверяем, что обработчик еще не запущен
+        if not self._running.is_set():
             async with self._lock:
-                if not self._running:
-                    self._running = True
+                # Двойная проверка для потокобезопасности
+                if not self._running.is_set():
+                    self._running.set()
                     # Создаем задачу с использованием глобального event loop
-                    self._task = event_loop_manager.create_task(self._process_queue())
+                    self._task = event_loop_manager.create_task(
+                        self._process_queue(), 
+                        name="TaskQueue_Processing"
+                    )
                     self._tasks.add(self._task)
                     logger.info("Task queue processing started")
+                    return True
+        
+        logger.warning("Task queue is already running")
+        return False
 
     async def stop(self) -> None:
         """Улучшенная остановка обработчика очереди"""
         logger.info("Останавливаем обработчик очереди...")
         try:
-            # Установка флага остановки
-            self._running = False
+            # Сбрасываем флаг работы
+            self._running.clear()
 
             # Отмена всех активных задач
             if self._task:
@@ -129,12 +142,14 @@ class TaskQueue:
     async def _process_queue(self):
         """Обработка задач из очереди с расширенной диагностикой"""
         logger.info("Starting queue processing loop")
-        while self._running:
+        
+        # Используем флаг для контроля цикла
+        while self._running.is_set():
             try:
                 # Периодическое логирование состояния очереди
                 current_time = time.time()
                 if current_time - self._last_queue_log_time > 60:  # Логируем каждую минуту
-                    logger.info(f"Queue status: size={self.queue.qsize()}, running={self._running}")
+                    logger.info(f"Queue status: size={self.queue.qsize()}, running={self._running.is_set()}")
                     self._last_queue_log_time = current_time
 
                 # Проверка доступности аккаунтов перед ожиданием задачи
