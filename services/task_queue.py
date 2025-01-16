@@ -143,6 +143,9 @@ class TaskQueue:
         """Обработка задач из очереди с расширенной диагностикой"""
         logger.info("Starting queue processing loop")
         
+        # Счетчик для ограничения логирования отсутствия аккаунтов
+        no_accounts_log_counter = 0
+        
         # Используем флаг для контроля цикла
         while self._running.is_set():
             try:
@@ -154,9 +157,16 @@ class TaskQueue:
 
                 # Проверка доступности аккаунтов перед ожиданием задачи
                 if not self.account_manager.has_available_accounts():
-                    logger.warning("No available accounts, waiting...")
+                    # Логируем каждые 5 попыток, чтобы не засорять логи
+                    no_accounts_log_counter += 1
+                    if no_accounts_log_counter % 5 == 0:
+                        logger.warning(f"No available accounts for {no_accounts_log_counter} attempts")
+                    
                     await asyncio.sleep(5)
                     continue
+
+                # Сбрасываем счетчик при появлении аккаунтов
+                no_accounts_log_counter = 0
 
                 # Ожидание задачи с таймаутом и логированием
                 try:
