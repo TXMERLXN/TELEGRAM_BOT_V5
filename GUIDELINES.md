@@ -72,7 +72,28 @@ Telegram бот для генерации профессиональных фо�
    - Отправить изменения в Amvera: `git push amvera master`
    - Дождаться автоматического деплоя
 
-3. **Выпуск в production**
+3. **Настройка webhook**
+   - Убедиться что в amvera.yml настроен порт 8080
+   - Добавить в конфигурацию бота обработку webhook:
+     ```python
+     from aiogram import Bot, Dispatcher, types
+     from aiogram.webhook.aiohttp_server import SimpleRequestHandler
+
+     bot = Bot(token=config.BOT_TOKEN)
+     dp = Dispatcher()
+
+     # Настройка webhook
+     async def on_startup(app):
+         webhook_url = f"https://{config.WEBHOOK_HOST}/webhook"
+         await bot.set_webhook(webhook_url)
+
+     # Создание aiohttp приложения
+     app = web.Application()
+     SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path="/webhook")
+     app.on_startup.append(on_startup)
+     ```
+
+4. **Выпуск в production**
    - Проверка работоспособности в dev
    - Merge `dev` в `main`
    - Автоматический деплой в prod-окружение

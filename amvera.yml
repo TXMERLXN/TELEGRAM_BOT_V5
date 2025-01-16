@@ -17,7 +17,9 @@ monitoring:
 
 env:
   - name: PORT
-    value: "8000"
+    value: "8080"
+  - name: WEBHOOK_HOST
+    value: '{{ WEBHOOK_HOST }}'
   - name: BOT_TOKEN  
     value: '{{ BOT_TOKEN }}'
   - name: RUNNINGHUB_API_KEY

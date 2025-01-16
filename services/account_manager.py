@@ -9,8 +9,9 @@ class AccountStatus:
     max_tasks: int = 5
 
 class AccountManager:
-    def __init__(self, runninghub_api: RunningHubAPI):
-        self.runninghub_api = runninghub_api
+    def __init__(self):
+        from .runninghub import RunningHubAPI
+        self.runninghub_api = RunningHubAPI()
         self.accounts: Dict[str, RunningHubAccount] = {}
         self.account_status: Dict[str, AccountStatus] = {}
         self.lock = asyncio.Lock()
@@ -55,3 +56,5 @@ class AccountManager:
     async def close(self) -> None:
         """Закрывает все аккаунты"""
         await self.runninghub_api.close()
+
+account_manager = AccountManager()

@@ -53,8 +53,8 @@ async def on_shutdown(bot: Bot, dispatcher: Dispatcher):
     
     logger.info("==========================")
 
-def main():
-    # Инициализация бота
+async def setup_bot() -> tuple[Bot, Dispatcher]:
+    """Настройка бота и диспетчера"""
     bot = Bot(
         token=config.tg_bot.token,
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
@@ -62,15 +62,43 @@ def main():
     dp = Dispatcher()
     
     # Регистрация хэндлеров
-    dp.include_router(base_router)  # Базовые команды
-    dp.include_router(generation_router)  # Генерация изображений
+    dp.include_router(base_router)
+    dp.include_router(generation_router)
     
     # Регистрация обработчиков запуска и завершения
     dp.startup.register(on_startup)
     dp.shutdown.register(on_shutdown)
     
-    # Запуск бота
-    asyncio.run(dp.start_polling(bot))
+    return bot, dp
+
+async def main():
+    """Основная функция запуска"""
+    bot, dp = await setup_bot()
+    
+    # Создаем aiohttp приложение
+    app = web.Application()
+    webhook_requests_handler = SimpleRequestHandler(
+        dispatcher=dp,
+        bot=bot,
+    )
+    
+    # Регистрируем webhook handler
+    webhook_requests_handler.register(app, path="/webhook")
+    
+    # Настраиваем порт из переменных окружения
+    port = int(os.getenv("PORT", 8000))
+    
+    # Настраиваем веб-приложение
+    setup_application(app, dp, bot=bot)
+    
+    # Запускаем сервер
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    
+    # Бесконечный цикл для работы сервера
+    await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

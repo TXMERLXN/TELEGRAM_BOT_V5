@@ -8,6 +8,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class TgBot:
     token: str
+    webhook_host: str = None
 
 @dataclass
 class RunningHubAccount:
@@ -37,6 +38,7 @@ def load_config() -> Config:
     # Проверяем наличие всех обязательных переменных окружения
     required_vars = {
         "BOT_TOKEN": "Telegram Bot Token",
+        "WEBHOOK_HOST": "Webhook host URL",
         "RUNNINGHUB_API_KEY_1": "RunningHub API Key",
         "RUNNINGHUB_WORKFLOW_ID_1": "RunningHub Workflow ID"
     }
@@ -105,7 +107,10 @@ def load_config() -> Config:
 
     logger.info(f"Successfully loaded {len(accounts)} RunningHub account(s)")
     return Config(
-        tg_bot=TgBot(token=getenv("BOT_TOKEN")),
+        tg_bot=TgBot(
+            token=getenv("BOT_TOKEN"),
+            webhook_host=getenv("WEBHOOK_HOST")
+        ),
         runninghub=RunningHub(accounts=accounts)
     )
 
