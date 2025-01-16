@@ -45,8 +45,9 @@ async def process_product_photo(message: Message, state: FSMContext, bot: Bot):
     file = await bot.get_file(photo.file_id)
     # Сохраняем временный файл и получаем URL
     temp_file_path = f"temp/product_{photo.file_id}.jpg"
+    file_data = await bot.download_file(file.file_path)
     with open(temp_file_path, "wb") as f:
-        f.write(await bot.download_file(file.file_path))
+        f.write(file_data.read())
 
     product_photo_url = f"file://{temp_file_path}"
 
@@ -67,8 +68,9 @@ async def process_background_photo(message: Message, state: FSMContext, bot: Bot
     background_file = await bot.get_file(background_photo.file_id)
     # Сохраняем временный файл и получаем URL
     temp_file_path = f"temp/background_{background_photo.file_id}.jpg"
+    file_data = await bot.download_file(background_file.file_path)
     with open(temp_file_path, "wb") as f:
-        f.write(await bot.download_file(background_file.file_path))
+        f.write(file_data.read())
 
     background_url = f"file://{temp_file_path}"
 
