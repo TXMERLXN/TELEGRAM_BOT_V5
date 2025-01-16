@@ -43,10 +43,15 @@ async def process_product_photo(message: Message, state: FSMContext, bot: Bot):
     """Обработка фотографии продукта"""
     photo = message.photo[-1]
     file = await bot.get_file(photo.file_id)
-    product_photo_data = await bot.download_file(file.file_path)
+    # Сохраняем временный файл и получаем URL
+    temp_file_path = f"temp/product_{photo.file_id}.jpg"
+    with open(temp_file_path, "wb") as f:
+        f.write(await bot.download_file(file.file_path))
+
+    product_photo_url = f"file://{temp_file_path}"
 
     await state.update_data(
-        product_photo_data=product_photo_data,
+        product_photo_url=product_photo_url,
         product_photo_id=photo.file_id
     )
     await state.set_state(GenerationStates.waiting_for_background)
@@ -60,13 +65,18 @@ async def process_background_photo(message: Message, state: FSMContext, bot: Bot
 
     background_photo = message.photo[-1]
     background_file = await bot.get_file(background_photo.file_id)
-    background_data = await bot.download_file(background_file.file_path)
+    # Сохраняем временный файл и получаем URL
+    temp_file_path = f"temp/background_{background_photo.file_id}.jpg"
+    with open(temp_file_path, "wb") as f:
+        f.write(await bot.download_file(background_file.file_path))
+
+    background_url = f"file://{temp_file_path}"
 
     try:
         # Добавляем задачу в очередь через IntegrationService
         await integration_service.add_generation_task(
-            product_image_url=product_photo_data,
-            background_image_url=background_data,
+            product_image_url=product_photo_url,
+            background_image_url=background_url,
             callback=lambda result: handle_generation_result(result, message, state)
         )
 
