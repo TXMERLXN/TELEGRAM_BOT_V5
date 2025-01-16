@@ -49,7 +49,12 @@ async def process_product_photo(message: Message, state: FSMContext, bot: Bot):
     with open(temp_file_path, "wb") as f:
         f.write(file_data.read())
 
+    if not temp_file_path:
+        raise ValueError("Temp file path is not defined")
+        
     product_photo_url = f"file://{temp_file_path}"
+    if not product_photo_url:
+        raise ValueError("Failed to generate product photo URL")
 
     await state.update_data(
         product_photo_url=product_photo_url,
@@ -62,7 +67,9 @@ async def process_product_photo(message: Message, state: FSMContext, bot: Bot):
 async def process_background_photo(message: Message, state: FSMContext, bot: Bot):
     """Обработка фонового изображения и запуск генерации"""
     data = await state.get_data()
-    product_photo_data = data.get("product_photo_data")
+    product_photo_url = data.get("product_photo_url")
+    if not product_photo_url:
+        raise ValueError("Product photo URL is not defined")
 
     background_photo = message.photo[-1]
     background_file = await bot.get_file(background_photo.file_id)
