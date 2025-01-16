@@ -29,14 +29,20 @@ class TaskQueue:
         product_image_url: str,
         background_image_url: str,
         callback: Any
-    ) -> None:
+    ) -> bool:
         """Добавляет задачу в очередь"""
+        if not self.account_manager.has_available_accounts():
+            logger.warning("No available accounts to process new task")
+            return False
+            
         task = Task(
             product_image_url=product_image_url,
             background_image_url=background_image_url,
             callback=callback
         )
         await self.queue.put(task)
+        logger.info(f"Added new task to queue (queue size: {self.queue.qsize()})")
+        return True
 
     async def start(self) -> None:
         """Запускает обработчик очереди"""
@@ -67,7 +73,7 @@ class TaskQueue:
                                 await task.callback
                             else:
                                 # Если это корутинная функция, создаем задачу
-                                await task.callback(None)
+                                await asyncio.create_task(task.callback(None))
                         else:
                             # Если это не корутина, выполняем синхронно через run_in_executor
                             await self.loop.run_in_executor(
@@ -83,7 +89,7 @@ class TaskQueue:
             if self._task and not self._task.done():
                 try:
                     self._task.cancel()
-                    await asyncio.wait_for(self._task, timeout=1.0)
+                    await asyncio.wait_for(self._task, timeout=1.0, loop=self.loop)
                 except (asyncio.CancelledError, asyncio.TimeoutError):
                     pass
                 except Exception as e:
@@ -95,13 +101,22 @@ class TaskQueue:
             async with self._lock:
                 if not self._running:
                     break
+                    
+                # Проверяем доступность аккаунтов
+                if not self.account_manager.has_available_accounts():
+                    await asyncio.sleep(1)
+                    continue
+                    
                 task = await self.queue.get()
-
                 api_key = await self.account_manager.get_available_account()
+                
                 if not api_key:
+                    logger.warning("No available accounts, putting task back to queue")
                     await self.queue.put(task)
                     await asyncio.sleep(1)
                     continue
+                    
+                logger.info(f"Selected account {api_key} for task processing")
 
                 try:
                     account = self.account_manager.accounts[api_key]

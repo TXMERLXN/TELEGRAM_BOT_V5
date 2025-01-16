@@ -19,7 +19,6 @@ from messages import (
 )
 
 router = Router()
-router.callback_query()
 
 class GenerationStates(StatesGroup):
     waiting_for_product = State()
@@ -33,6 +32,8 @@ async def start_generation(callback: CallbackQuery, state: FSMContext):
     await state.set_state(GenerationStates.waiting_for_product)
     await callback.message.answer(SEND_PRODUCT_PHOTO, reply_markup=get_cancel_keyboard())
     await callback.answer()
+
+router.callback_query()
 
 @router.message(Command("generate"))
 async def start_generation_command(message: Message, state: FSMContext):

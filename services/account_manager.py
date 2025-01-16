@@ -1,7 +1,10 @@
 import asyncio
+import logging
 from typing import Dict, Optional, Any
 from dataclasses import dataclass
 from .runninghub import RunningHubAccount, RunningHubAPI
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class AccountStatus:
@@ -57,13 +60,23 @@ class AccountManager:
         """Закрывает все аккаунты"""
         await self.runninghub_api.close()
 
+    def has_available_accounts(self) -> bool:
+        """Проверяет наличие доступных аккаунтов"""
+        return any(
+            status.active_tasks < status.max_tasks
+            for status in self.account_status.values()
+        )
+
     async def initialize(self, accounts: Dict[str, RunningHubAccount]) -> None:
         """Инициализирует аккаунты"""
         for account in accounts.values():
-            self.add_account(
-                api_key=account.api_key,
-                workflow_id=account.workflows['product'],
-                max_tasks=account.max_jobs
-            )
+            try:
+                self.add_account(
+                    api_key=account.api_key,
+                    workflow_id=account.workflows['product'],
+                    max_tasks=account.max_jobs
+                )
+            except Exception as e:
+                logger.error(f"Failed to initialize account {account.api_key}: {e}")
 
 account_manager = AccountManager()
