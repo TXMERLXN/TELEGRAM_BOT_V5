@@ -7,7 +7,7 @@
 4. Скопировать сгенерированный ключ
 
 ## Настройка переменных окружения
-Создайте файл `.env` с API-ключом:
+Создайте файл `timeweb.env` с API-ключом:
 ```bash
 TIMEWEB_API_KEY=ваш_api_ключ_здесь
 ```
@@ -23,18 +23,21 @@ TIMEWEB_API_KEY=ваш_api_ключ_здесь
 from timeweb_api_client import TimewebCloudAPI
 
 # Инициализация клиента
-api = TimewebCloudAPI(api_key='ваш_ключ')
+api = TimewebCloudAPI()
 
-# Создание сервера
-new_server = api.deploy_telegram_bot()
+# Создание сервера для Telegram бота
+new_server = api.deploy_telegram_bot_server()
 
 # Получение списка серверов
 servers = api.list_servers()
+
+# Получение деталей конкретного сервера
+server_details = api.get_server_details('server_id')
 ```
 
 ## Безопасность
 - Храните API-ключ в секрете
-- Используйте `.env` файлы
+- Используйте `timeweb.env` файлы
 - Не коммитьте ключи в репозиторий
 
 ## Лимиты API
@@ -45,4 +48,11 @@ servers = api.list_servers()
 ## Troubleshooting
 - Проверяйте коды ответа
 - Обрабатывайте исключения
-- Логируйте ошибки
+- Смотрите подробные логи
+
+## Установка зависимостей
+```bash
+pip install requests python-dotenv
+```
+
+**Внимание**: Всегда проверяйте конфигурацию перед выполнением
