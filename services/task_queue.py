@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from .account_manager import AccountManager
 from .runninghub import RunningHubAPI
 from .event_loop import event_loop_manager
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,9 @@ class TaskQueue:
         self._lock = asyncio.Lock(loop=self.loop)
         self._tasks = set()  # Хранение всех активных задач
         
+        # Добавляем логирование состояния очереди
+        self._last_queue_log_time = time.time()
+
     async def add_task(
         self,
         product_image_url: str,
@@ -59,6 +63,7 @@ class TaskQueue:
                     # Создаем задачу с использованием глобального event loop
                     self._task = event_loop_manager.create_task(self._process_queue())
                     self._tasks.add(self._task)
+                    logger.info("Task queue processing started")
 
     async def stop(self) -> None:
         """Улучшенная остановка обработчика очереди"""
@@ -128,63 +133,87 @@ class TaskQueue:
 
     async def _process_queue(self):
         """Обработка задач из очереди с расширенной диагностикой"""
+        logger.info("Starting queue processing loop")
         while self._running:
             try:
-                # Используем глобальный event loop для ожидания задачи
-                task = await asyncio.wait_for(self.queue.get(), timeout=5.0)
-                
-                # Обработка задачи с использованием глобального event loop
+                # Периодическое логирование состояния очереди
+                current_time = time.time()
+                if current_time - self._last_queue_log_time > 60:  # Логируем каждую минуту
+                    logger.info(f"Queue status: size={self.queue.qsize()}, running={self._running}")
+                    self._last_queue_log_time = current_time
+
+                # Проверка доступности аккаунтов перед ожиданием задачи
+                if not self.account_manager.has_available_accounts():
+                    logger.warning("No available accounts, waiting...")
+                    await asyncio.sleep(5)
+                    continue
+
+                # Ожидание задачи с таймаутом и логированием
+                try:
+                    task = await asyncio.wait_for(self.queue.get(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    logger.debug("Queue wait timeout, continuing...")
+                    continue
+
+                # Получение API ключа
                 api_key = await self.account_manager.get_available_account()
                 
                 if not api_key:
-                    logger.warning("No available accounts, putting task back to queue")
+                    logger.warning("No API key available, returning task to queue")
                     await self.queue.put(task)
                     await asyncio.sleep(1)
                     continue
-                    
-                logger.info(f"Selected account {api_key} for task processing")
 
                 try:
-                    account = self.account_manager.accounts[api_key]
-                    task_id = await self.runninghub_api.create_task(
-                        api_key=api_key,
-                        workflow_id=account.workflow_id,
-                        product_image_url=task.product_image_url,
-                        background_image_url=task.background_image_url
-                    )
-
-                    if task_id:
-                        results = await self._wait_for_task_completion(
-                            api_key=api_key,
-                            task_id=task_id
-                        )
-                        await task.callback(results)
-                    else:
-                        await task.callback(None)
-
-                except Exception as e:
-                    if task.retries < 3:
-                        task.retries += 1
-                        await self.queue.put(task)
-                    else:
-                        await task.callback(None)
+                    # Выполнение задачи с логированием
+                    logger.info(f"Processing task from queue. Current queue size: {self.queue.qsize()}")
+                    await self._execute_task(task, api_key)
+                except Exception as task_error:
+                    logger.error(f"Error executing task: {task_error}", exc_info=True)
                 finally:
                     await self.account_manager.release_account(api_key)
                     self.queue.task_done()
-            except asyncio.TimeoutError:
-                # Таймаут - нормальное состояние, просто продолжаем цикл
-                continue
+
             except Exception as e:
-                # Логирование и обработка неожиданных ошибок
                 logger.error(f"Unexpected error in queue processing: {e}", exc_info=True)
                 
                 # Попытка восстановления
                 try:
                     # Пересоздаем очередь с использованием глобального event loop
                     self.queue = asyncio.Queue(loop=self.loop)
+                    logger.warning("Queue recreated after error")
                 except Exception as recovery_error:
                     logger.error(f"Failed to recover queue: {recovery_error}", exc_info=True)
                     break
+
+        logger.info("Queue processing loop ended")
+
+    async def _execute_task(self, task: Task, api_key: str) -> None:
+        """Выполнение задачи"""
+        try:
+            account = self.account_manager.accounts[api_key]
+            task_id = await self.runninghub_api.create_task(
+                api_key=api_key,
+                workflow_id=account.workflow_id,
+                product_image_url=task.product_image_url,
+                background_image_url=task.background_image_url
+            )
+
+            if task_id:
+                results = await self._wait_for_task_completion(
+                    api_key=api_key,
+                    task_id=task_id
+                )
+                await task.callback(results)
+            else:
+                await task.callback(None)
+
+        except Exception as e:
+            if task.retries < 3:
+                task.retries += 1
+                await self.queue.put(task)
+            else:
+                await task.callback(None)
 
     async def _wait_for_task_completion(
         self,
