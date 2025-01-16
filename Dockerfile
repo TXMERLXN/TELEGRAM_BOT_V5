@@ -8,6 +8,7 @@ LABEL description="Telegram Bot for AI Product Photo Generation"
 # Обновление системных пакетов
 RUN apt-get update && apt-get install -y \
     build-essential \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Рабочая директория
@@ -32,5 +33,8 @@ ENV PYTHONUNBUFFERED=1
 # Порт для webhook (соответствует требованиям Timeweb Cloud)
 EXPOSE 8080
 
-# Команда запуска с gunicorn
-CMD ["gunicorn", "-b", "0.0.0.0:8080", "-w", "4", "-k", "uvicorn.workers.UvicornWorker", "bot_new:main"]
+# Проверка кода перед запуском
+RUN python -m compileall .
+
+# Команда запуска с gunicorn и логированием
+CMD ["sh", "-c", "gunicorn -b 0.0.0.0:8080 -w 4 -k uvicorn.workers.UvicornWorker bot_new:main --log-level debug"]
