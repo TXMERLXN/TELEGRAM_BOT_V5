@@ -109,12 +109,17 @@ class TaskQueue:
                         for task in pending:
                             try:
                                 # Проверяем что задача принадлежит текущему loop
-                                if hasattr(task, '_loop') and task._loop is not self.loop:
-                                    logger.debug(f"Task {task.get_name()} belongs to different loop, skipping cancellation")
-                                    continue
+                                if hasattr(task, '_loop'):
+                                    if task._loop is not self.loop:
+                                        logger.debug(f"Task {task.get_name()} belongs to different loop {task._loop}, current loop {self.loop}")
+                                        # Создаем задачу в правильном loop
+                                        if task._loop.is_running():
+                                            task._loop.create_task(self._cancel_task(task))
+                                        continue
                                     
                                 # Убедимся что задача еще не завершена
                                 if task.done():
+                                    logger.debug(f"Task {task.get_name()} already done")
                                     continue
                                     
                                 # Создаем новую задачу в текущем loop для отмены
@@ -124,7 +129,7 @@ class TaskQueue:
                                 )
                                 # Добавляем обратный вызов для обработки ошибок
                                 cancel_task.add_done_callback(
-                                    lambda t: logger.debug(f"Cancel task completed with status: {t.result()}")
+                                    lambda t: logger.debug(f"Cancel task {id(t)} completed with status: {t.result()}")
                                 )
                             except Exception as e:
                                 logger.error(f"Error preparing task cancellation: {e}", exc_info=True)
