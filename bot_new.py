@@ -102,26 +102,34 @@ def main():
             async def on_startup_webhook(dispatcher):
                 await bot.set_webhook(
                     url=f'https://{webhook_host}/webhook',
-                    drop_pending_updates=True
+                    drop_pending_updates=True,
+                    max_connections=50  # Ограничение подключений
                 )
                 await on_startup(dispatcher)
             
-            # Запуск через aiogram
+            # Запуск через aiogram с ограничениями
             start_webhook(
                 dispatcher=dp,
                 webhook_path='/webhook',
                 on_startup=on_startup_webhook,
                 on_shutdown=on_shutdown,
                 host='0.0.0.0',
-                port=webhook_port
+                port=webhook_port,
+                # Ограничение потоков
+                workers=2
             )
         else:
             # Long polling режим
             dp.startup.register(on_startup)
             dp.shutdown.register(on_shutdown)
             
-            # Запуск polling
-            run_polling(dp)
+            # Запуск polling с ограничениями
+            run_polling(
+                dp, 
+                skip_updates=True,
+                # Ограничение времени ожидания
+                timeout=10
+            )
     
     except Exception as e:
         logger.error(f"Ошибка при запуске бота: {e}")
