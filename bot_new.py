@@ -95,7 +95,7 @@ def main():
     try:
         if use_webhook:
             # Webhook-режим
-            webhook_host = os.getenv('WEBHOOK_HOST', 'txmerlxn-telegram-bot-v5-17ee.twc1.net')
+            webhook_host = os.getenv('WEBHOOK_HOST', 'txmerlxn-telegram-bot-v5-e5e6.twc1.net')
             webhook_port = int(os.getenv('WEBHOOK_PORT', 8080))
             
             # Асинхронный запуск webhook
