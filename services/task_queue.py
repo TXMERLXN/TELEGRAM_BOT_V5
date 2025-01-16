@@ -45,25 +45,40 @@ class TaskQueue:
         """Останавливает обработчик очереди"""
         self._running = False
         
+        # Получаем текущий event loop
+        loop = asyncio.get_running_loop()
+        
         # Отменяем все задачи в очереди
         while not self.queue.empty():
             task = self.queue.get_nowait()
             if hasattr(task, 'callback'):
                 try:
-                    await task.callback(None)
+                    # Создаем новую задачу в текущем loop
+                    callback_task = loop.create_task(task.callback(None))
+                    await callback_task
                 except Exception:
                     pass
             self.queue.task_done()
 
         # Отменяем основной обработчик
         if self._task:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-            except Exception as e:
-                logger.error(f"Error during shutdown: {e}")
+            # Убедимся, что задача создана в текущем loop
+            if self._task._loop is not loop:
+                self._task.cancel()
+                try:
+                    await asyncio.wait_for(self._task, timeout=1.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+                except Exception as e:
+                    logger.error(f"Error during shutdown: {e}")
+            else:
+                self._task.cancel()
+                try:
+                    await self._task
+                except asyncio.CancelledError:
+                    pass
+                except Exception as e:
+                    logger.error(f"Error during shutdown: {e}")
 
     async def _process_queue(self) -> None:
         """Обрабатывает задачи из очереди"""
