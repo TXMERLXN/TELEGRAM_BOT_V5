@@ -8,7 +8,7 @@ build:
   requirementsPath: requirements.txt
 
 run:
-  command: bash deploy_dev.sh
+  command: bash deploy_amvera.sh
   persistenceMount: /data
 
 monitoring:
