@@ -48,47 +48,28 @@ class TaskQueue:
         """Останавливает обработчик очереди"""
         self._running = False
         
-        # Создаем новый event loop для отмены задач
-        new_loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(new_loop)
-        
-        try:
-            # Отменяем все задачи в очереди
-            while not self.queue.empty():
-                task = self.queue.get_nowait()
-                if hasattr(task, 'callback') and task.callback:
-                    if asyncio.iscoroutinefunction(task.callback):
-                        try:
-                            # Создаем новую задачу в новом loop
-                            callback_task = new_loop.create_task(task.callback(None))
-                            new_loop.run_until_complete(callback_task)
-                        except Exception as e:
-                            logger.error(f"Error during async callback execution: {e}")
-                    else:
-                        try:
-                            # Если callback не корутина, просто вызываем его
-                            task.callback(None)
-                        except Exception as e:
-                            logger.error(f"Error during sync callback execution: {e}")
-                self.queue.task_done()
-
-            # Отменяем основной обработчик
-            if self._task:
+        # Отменяем все задачи в очереди
+        while not self.queue.empty():
+            task = self.queue.get_nowait()
+            if hasattr(task, 'callback') and task.callback:
                 try:
-                    # Создаем новую задачу в новом loop для отмены
-                    cancel_task = new_loop.create_task(self._task.cancel())
-                    new_loop.run_until_complete(asyncio.wait_for(cancel_task, timeout=1.0))
-                except (asyncio.CancelledError, asyncio.TimeoutError):
-                    pass
+                    if asyncio.iscoroutinefunction(task.callback):
+                        await task.callback(None)
+                    else:
+                        task.callback(None)
                 except Exception as e:
-                    logger.error(f"Error during task cancellation: {e}")
-                    # Принудительно завершаем задачу, если отмена не удалась
-                    if not self._task.done():
-                        self._task.cancel()
-        finally:
-            # Восстанавливаем оригинальный event loop
-            new_loop.close()
-            asyncio.set_event_loop(asyncio.get_event_loop())
+                    logger.error(f"Error during callback execution: {e}")
+            self.queue.task_done()
+
+        # Отменяем основной обработчик
+        if self._task and not self._task.done():
+            try:
+                self._task.cancel()
+                await asyncio.wait_for(self._task, timeout=1.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+            except Exception as e:
+                logger.error(f"Error during task cancellation: {e}")
 
     async def _process_queue(self) -> None:
         """Обрабатывает задачи из очереди"""
