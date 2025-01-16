@@ -23,8 +23,9 @@ ENV WEBHOOK_HOST=${WEBHOOK_HOST}
 ENV WEBHOOK_PORT=${WEBHOOK_PORT:-8080}
 ENV USE_WEBHOOK=true
 
-# Порт для webhook
+# Порт для webhook (соответствует требованиям Timeweb Cloud)
 EXPOSE 8080
 
 # Команда запуска
-CMD ["python", "bot_new.py"]
+ENTRYPOINT ["python"]
+CMD ["bot_new.py"]
