@@ -4,7 +4,7 @@ def get_main_menu_keyboard() -> InlineKeyboardMarkup:
     """Главное меню"""
     keyboard = [
         [
-            InlineKeyboardButton(text="🖼 Сгенерировать", callback_data="generate"),
+            InlineKeyboardButton(text="🖼 Генерация", callback_data="generate"),
             InlineKeyboardButton(text="❓ Помощь", callback_data="help")
         ]
     ]

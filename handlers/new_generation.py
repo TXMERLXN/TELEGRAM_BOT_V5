@@ -25,12 +25,18 @@ class GenerationStates(StatesGroup):
     waiting_for_background = State()
     processing = State()
 
-@router.message(Command("generate"))
-async def start_generation(message: Message, state: FSMContext):
+@router.callback_query(F.data == "generate")
+async def start_generation(callback: CallbackQuery, state: FSMContext):
     """Начало процесса генерации"""
     await state.clear()
     await state.set_state(GenerationStates.waiting_for_product)
-    await message.answer(SEND_PRODUCT_PHOTO, reply_markup=get_cancel_keyboard())
+    await callback.message.answer(SEND_PRODUCT_PHOTO, reply_markup=get_cancel_keyboard())
+    await callback.answer()
+
+@router.message(Command("generate"))
+async def start_generation_command(message: Message, state: FSMContext):
+    """Альтернативный способ запуска генерации через команду"""
+    await start_generation(message, state)
 
 @router.message(F.photo, GenerationStates.waiting_for_product)
 async def process_product_photo(message: Message, state: FSMContext, bot: Bot):
