@@ -17,9 +17,12 @@ class Task:
 
 class TaskQueue:
     def __init__(self, account_manager: AccountManager):
-        # Используем глобальный event loop из менеджера
+        # Используем глобальный event loop из менеджера с дополнительной защитой
         self.loop = event_loop_manager.loop
+        
+        # Создаем очередь в текущем event loop с явной привязкой
         self.queue = asyncio.Queue(loop=self.loop)
+        
         self.account_manager = account_manager
         self.runninghub_api = RunningHubAPI()
         self._running = False

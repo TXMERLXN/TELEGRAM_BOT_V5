@@ -55,6 +55,9 @@ async def on_shutdown(bot: Bot, dispatcher: Dispatcher):
         
         await integration_service.shutdown()
         logger.info("Successfully shut down integration service")
+        
+        # Закрытие event loop
+        event_loop_manager.close()
     except Exception as e:
         logger.error(f"Error during shutdown: {str(e)}", exc_info=True)
 
