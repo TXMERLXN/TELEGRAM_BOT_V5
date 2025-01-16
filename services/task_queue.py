@@ -73,7 +73,7 @@ class TaskQueue:
                                 await task.callback
                             else:
                                 # Если это корутинная функция, создаем задачу
-                                await asyncio.create_task(task.callback(None), loop=self.loop)
+                                await asyncio.create_task(task.callback(None))
                         else:
                             # Если это не корутина, выполняем синхронно через run_in_executor
                             await self.loop.run_in_executor(
@@ -94,6 +94,9 @@ class TaskQueue:
                     pass
                 except Exception as e:
                     logger.error(f"Error during task cancellation: {e}")
+
+            # Ожидаем завершения всех задач
+            await self.queue.join()
 
     async def _process_queue(self) -> None:
         """Обрабатывает задачи из очереди"""
