@@ -33,8 +33,6 @@ async def start_generation(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(SEND_PRODUCT_PHOTO, reply_markup=get_cancel_keyboard())
     await callback.answer()
 
-router.callback_query()
-
 @router.message(Command("generate"))
 async def start_generation_command(message: Message, state: FSMContext):
     """Альтернативный способ запуска генерации через команду"""
