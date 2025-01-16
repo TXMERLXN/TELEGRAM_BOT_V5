@@ -1,8 +1,11 @@
 import asyncio
+import logging
 from typing import Dict, Optional, Any
 from dataclasses import dataclass
 from .account_manager import AccountManager
 from .runninghub import RunningHubAPI
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class Task:
@@ -78,7 +81,7 @@ class TaskQueue:
                 except asyncio.CancelledError:
                     pass
                 except Exception as e:
-                    logger.error(f"Error during shutdown: {e}")
+                    logger.error(f"Error during task cancellation: {e}")
 
     async def _process_queue(self) -> None:
         """Обрабатывает задачи из очереди"""
