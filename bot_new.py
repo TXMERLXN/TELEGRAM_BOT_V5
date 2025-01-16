@@ -2,6 +2,7 @@ import os
 import sys
 import logging
 import asyncio
+from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
@@ -73,6 +74,9 @@ async def setup_bot() -> tuple[Bot, Dispatcher]:
 
 async def main():
     """Основная функция запуска"""
+    # Загружаем переменные окружения из .env файла
+    load_dotenv()
+    
     bot, dp = await setup_bot()
     
     # Создаем aiohttp приложение
