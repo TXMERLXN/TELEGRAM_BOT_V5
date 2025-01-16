@@ -147,6 +147,40 @@ https://txmerlxn-telegram-bot-v5-17ee.twc1.net
 
 > **Совет:** Регулярно проверяйте использование ресурсов и при необходимости масштабируйте приложение
 
+## Интеграция VCS-провайдеров через API
+
+### Получение токена для GitHub
+
+1. Перейдите в [GitHub Settings](https://github.com/settings/tokens?type=fine-grained)
+2. Создайте Fine-grained personal access token
+3. Настройте разрешения:
+   - `Webhooks: read and write`
+   - `Contents: read-only`
+
+### Получение токена для GitLab
+
+1. Перейдите в профиль GitLab
+2. Создайте Personal access token
+3. Выберите разрешение `api`
+
+### Получение токена для BitBucket
+
+1. Перейдите в Personal Bitbucket settings
+2. Создайте App Password
+3. Укажите разрешения:
+   - `Account: Read`
+   - `Projects: Read`
+   - `Repositories: Read`
+   - `Webhooks: Read and write`
+
+### Важные замечания
+
+- Токены имеют ограниченный срок действия
+- Рекомендуется регулярно обновлять токены
+- Храните токены в безопасном месте
+
+> **Внимание:** Никогда не публикуйте токены в открытом доступе!
+
 ## Возможные проблемы и решения
 
 ### Webhook не работает
