@@ -16,7 +16,6 @@ class Task:
 
 class TaskQueue:
     def __init__(self, account_manager: AccountManager):
-        self.loop = asyncio.get_event_loop()
         self.queue = asyncio.Queue()
         self.account_manager = account_manager
         self.runninghub_api = RunningHubAPI()
