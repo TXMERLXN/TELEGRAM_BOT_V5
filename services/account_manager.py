@@ -66,4 +66,12 @@ class AccountManager:
                 max_tasks=account.max_jobs
             )
 
+    def has_available_accounts(self) -> bool:
+        """Проверяет наличие доступных аккаунтов"""
+        async with self.lock:
+            for status in self.account_status.values():
+                if status.active_tasks < status.max_tasks:
+                    return True
+            return False
+
 account_manager = AccountManager()
