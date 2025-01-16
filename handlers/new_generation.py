@@ -3,7 +3,8 @@ import logging
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, CallbackQuery, URLInputFile
+from aiogram.types import Message, URLInputFile
+from aiogram.types import CallbackQuery
 from aiogram.fsm.state import State, StatesGroup
 
 from services.integration import integration_service
@@ -19,6 +20,7 @@ from messages import (
 )
 
 router = Router()
+router.callback_query()
 
 class GenerationStates(StatesGroup):
     waiting_for_product = State()

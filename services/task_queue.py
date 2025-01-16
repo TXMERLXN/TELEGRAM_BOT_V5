@@ -16,13 +16,13 @@ class Task:
 
 class TaskQueue:
     def __init__(self, account_manager: AccountManager):
-        self.loop = asyncio.get_event_loop()
         self.queue = asyncio.Queue()
         self.account_manager = account_manager
         self.runninghub_api = RunningHubAPI()
         self._running = False
         self._task = None
         self._lock = asyncio.Lock()
+        self.loop = asyncio.get_event_loop()
 
     async def add_task(
         self,
@@ -56,9 +56,9 @@ class TaskQueue:
                 task = self.queue.get_nowait()
                 if hasattr(task, 'callback') and task.callback:
                     try:
-                        # Создаем новую задачу в текущем event loop
+                        # Если callback - корутина, создаем новую задачу в текущем loop
                         if asyncio.iscoroutinefunction(task.callback):
-                            asyncio.create_task(task.callback(None))
+                            self.loop.create_task(task.callback(None))
                         else:
                             # Если это не корутина, выполняем синхронно
                             await self.loop.run_in_executor(
