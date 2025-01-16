@@ -62,50 +62,57 @@ class TaskQueue:
             
             # Отменяем основной обработчик
             if self._task and not self._task.done():
+                self._task.cancel()
                 try:
-                    self._task.cancel()
-                    await asyncio.wait_for(self._task, timeout=5.0)
+                    await self._task
                 except asyncio.CancelledError:
                     logger.debug("Main task cancelled successfully")
-                except asyncio.TimeoutError:
-                    logger.warning("Timeout while cancelling main task")
                 except Exception as e:
-                    logger.error(f"Error during task cancellation: {e}")
+                    logger.error(f"Error during task execution: {e}")
                 finally:
                     self._task = None
 
             # Обрабатываем оставшиеся задачи в очереди
             pending_tasks = []
-            while not self.queue.empty():
-                task = self.queue.get_nowait()
-                if task.callback:
-                    try:
-                        # Создаем задачу для callback в текущем loop
-                        if asyncio.iscoroutinefunction(task.callback):
-                            callback_task = self.loop.create_task(
-                                task.callback(None) if not asyncio.iscoroutine(task.callback)
-                                else task.callback
-                            )
-                            pending_tasks.append(callback_task)
-                        else:
-                            # Для синхронных callback'ов используем run_in_executor
-                            await self.loop.run_in_executor(
-                                None,
-                                task.callback,
-                                None
-                            )
-                    except Exception as e:
-                        logger.error(f"Error during callback execution: {e}", exc_info=True)
-                self.queue.task_done()
+            try:
+                while not self.queue.empty():
+                    task = self.queue.get_nowait()
+                    if task.callback:
+                        try:
+                            # Создаем задачу для callback в текущем loop
+                            if asyncio.iscoroutinefunction(task.callback):
+                                callback_task = asyncio.create_task(
+                                    task.callback(None),
+                                    name=f"callback_task_{id(task)}"
+                                )
+                                pending_tasks.append(callback_task)
+                            else:
+                                # Для синхронных callback'ов используем run_in_executor
+                                await asyncio.to_thread(task.callback, None)
+                        except Exception as e:
+                            logger.error(f"Error during callback execution: {e}", exc_info=True)
+                    self.queue.task_done()
+            except Exception as e:
+                logger.error(f"Error while processing remaining tasks: {e}")
 
             # Ожидаем завершения всех callback задач
             if pending_tasks:
-                try:
-                    await asyncio.wait(pending_tasks, timeout=5.0)
-                except asyncio.TimeoutError:
-                    logger.warning("Timeout while waiting for callback tasks")
-                except Exception as e:
-                    logger.error(f"Error while waiting for callback tasks: {e}")
+                done, pending = await asyncio.wait(
+                    pending_tasks,
+                    timeout=5.0,
+                    return_when=asyncio.ALL_COMPLETED
+                )
+                
+                if pending:
+                    logger.warning(f"{len(pending)} callback tasks still pending")
+                    for task in pending:
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
+                        except Exception as e:
+                            logger.error(f"Error cancelling pending task: {e}")
 
             # Освобождаем все аккаунты
             await self.account_manager.release_all_accounts()
