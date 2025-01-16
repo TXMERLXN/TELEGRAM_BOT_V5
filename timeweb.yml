@@ -1,0 +1,50 @@
+version: '1.0'
+name: telegram-bot
+type: docker
+
+source:
+  type: github
+  repository: TXMERLXN/TELEGRAM_BOT_V5
+  branch: master
+
+meta:
+  environment: python
+  toolchain:
+    name: pip
+    version: 3.9
+
+build:
+  dockerfile: Dockerfile
+  context: .
+  requirementsPath: requirements.txt
+
+deploy:
+  strategy: replace
+  ports:
+    - 8000:8000
+
+domains:
+  - txmerlxn-telegram-bot-v5-17ee.twc1.net
+
+environment:
+  - name: BOT_TOKEN
+    value: ${BOT_TOKEN}
+  - name: WEBHOOK_HOST
+    value: https://txmerlxn-telegram-bot-v5-17ee.twc1.net
+  - name: WEBHOOK_PORT
+    value: "8080"
+  - name: USE_WEBHOOK
+    value: "true"
+
+run:
+  command: python bot_new.py
+  persistenceMount: /data
+
+resources:
+  cpu: 1
+  ram: 1024
+  disk: 10240
+
+scaling:
+  min: 1
+  max: 2

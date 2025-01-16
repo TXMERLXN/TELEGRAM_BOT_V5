@@ -45,3 +45,15 @@ uploads/
 
 # Animation files
 assets/upload_animation.json
+
+# Timeweb Cloud
+*.log
+.env
+timeweb_secrets.yml
+
+# Docker
+.dockerignore
+docker-compose.override.yml
+
+# CI/CD
+.github/secrets/

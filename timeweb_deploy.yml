@@ -1,0 +1,19 @@
+version: '1.0'
+
+services:
+  bot:
+    image: python:3.9-slim
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
+    restart: always
+    ports:
+      - 8000:8000
+    volumes:
+      - ./:/app
+
+networks:
+  default:
+    name: telegram-bot-network

@@ -18,9 +18,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Переменные окружения
-ENV BOT_TOKEN=7875071911:AAFUbiivWfJr2E2Zhge4GCFWx5AacKzysmM
-ENV WEBHOOK_HOST=bot-v5.timeweb.cloud
-ENV WEBHOOK_PORT=8080
+ENV BOT_TOKEN=${BOT_TOKEN}
+ENV WEBHOOK_HOST=${WEBHOOK_HOST}
+ENV WEBHOOK_PORT=${WEBHOOK_PORT:-8080}
 ENV USE_WEBHOOK=true
 
 # Порт для webhook
