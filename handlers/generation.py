@@ -28,7 +28,12 @@ from messages import (
     GENERATION_STARTED,
 )
 from states.generation import GenerationState
-from keyboards import Keyboards
+from keyboards import (
+    get_main_menu_keyboard,
+    get_back_keyboard, 
+    get_cancel_keyboard,
+    get_result_keyboard
+)
 
 router = Router()
 
