@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  telegram-bot:
+    build: .
+    container_name: telegram-bot-v5
+    restart: always
+    ports:
+      - "8080:8080"
+    environment:
+      - BOT_TOKEN=7875071911:AAFUbiivWfJr2E2Zhge4GCFWx5AacKzysmM
+      - WEBHOOK_HOST=bot-v5-timeweb.cloud
+      - WEBHOOK_PORT=8080
+      - USE_WEBHOOK=true
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
