@@ -16,7 +16,8 @@ class Task:
 
 class TaskQueue:
     def __init__(self, account_manager: AccountManager):
-        self.queue = asyncio.Queue()
+        self.loop = asyncio.get_event_loop()
+        self.queue = asyncio.Queue(loop=self.loop)
         self.account_manager = account_manager
         self.runninghub_api = RunningHubAPI()
         self._running = False
@@ -42,7 +43,7 @@ class TaskQueue:
             return
 
         self._running = True
-        self._task = asyncio.create_task(self._process_queue())
+        self._task = self.loop.create_task(self._process_queue())
 
     async def stop(self) -> None:
         """Останавливает обработчик очереди"""
