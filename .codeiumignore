@@ -24,11 +24,6 @@ var/
 venv/
 ENV/
 
-# Environment Variables
-.env
-.env.local
-.env.*.local
-
 # IDE
 .idea/
 .vscode/
@@ -45,3 +40,6 @@ uploads/
 
 # Animation files
 assets/upload_animation.json
+
+# Allow .env file for AI assistant
+!.env
