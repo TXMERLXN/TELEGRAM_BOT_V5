@@ -14,6 +14,10 @@ from config import config
 from handlers.base import router as base_router
 from handlers.new_generation import router as generation_router
 from services.integration import IntegrationService
+from services.task_queue import task_queue
+
+# Глобальный event loop
+global_loop = asyncio.get_event_loop()
 
 # Инициализация сервисов
 integration_service = IntegrationService(config.runninghub.accounts)
@@ -33,6 +37,9 @@ async def on_startup(bot: Bot, dispatcher: Dispatcher):
     try:
         await integration_service.initialize()
         logger.info("Successfully initialized integration service")
+        
+        # Запуск обработчика очереди с глобальным event loop
+        await task_queue.start()
     except Exception as e:
         logger.error(f"Failed to initialize integration service: {str(e)}", exc_info=True)
         sys.exit(1)
@@ -45,44 +52,55 @@ async def on_shutdown(bot: Bot, dispatcher: Dispatcher):
     logger.info("====== Shutting down bot ======")
     
     try:
+        # Остановка обработчика очереди
+        await task_queue.stop()
+        
         await integration_service.shutdown()
         logger.info("Successfully shut down integration service")
     except Exception as e:
         logger.error(f"Error during shutdown: {str(e)}", exc_info=True)
-    
-    # Закрываем сессию бота
-    await bot.session.close()
-    
-    logger.info("==========================")
 
-async def setup_bot() -> tuple[Bot, Dispatcher]:
+def setup_bot():
     """Настройка бота и диспетчера"""
+    load_dotenv()
+
+    bot_token = os.getenv('BOT_TOKEN')
+    if not bot_token:
+        logger.error("Bot token not found in environment variables")
+        sys.exit(1)
+
     bot = Bot(
-        token=config.tg_bot.token,
+        token=bot_token, 
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
-    dp = Dispatcher()
     
-    # Регистрация хэндлеров
-    dp.include_router(base_router)
-    dp.include_router(generation_router)
+    dispatcher = Dispatcher()
     
-    # Регистрация обработчиков запуска и завершения
-    dp.startup.register(on_startup)
-    dp.shutdown.register(on_shutdown)
-    
-    return bot, dp
+    # Регистрация роутеров
+    dispatcher.include_routers(
+        base_router, 
+        generation_router
+    )
 
-async def main():
+    # Регистрация обработчиков событий
+    dispatcher.startup.register(on_startup)
+    dispatcher.shutdown.register(on_shutdown)
+
+    return bot, dispatcher
+
+def main():
     """Основная функция запуска"""
-    # Загружаем переменные окружения из .env файла
-    load_dotenv()
+    bot, dispatcher = setup_bot()
     
-    bot, dp = await setup_bot()
-    
-    # Удаляем webhook и запускаем polling
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+    try:
+        # Запуск polling с использованием глобального event loop
+        dispatcher.run_polling(
+            bot, 
+            skip_updates=True,
+            loop=global_loop
+        )
+    except Exception as e:
+        logger.error(f"Error during bot polling: {str(e)}", exc_info=True)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main(), loop=global_loop)

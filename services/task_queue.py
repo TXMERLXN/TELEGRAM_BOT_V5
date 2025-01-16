@@ -16,6 +16,8 @@ class Task:
 
 class TaskQueue:
     def __init__(self, account_manager: AccountManager):
+        # Используем глобальный event loop
+        import asyncio
         self.loop = asyncio.get_event_loop()
         self.queue = asyncio.Queue(loop=self.loop)
         self.account_manager = account_manager
