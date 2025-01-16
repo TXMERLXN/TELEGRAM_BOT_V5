@@ -5,22 +5,26 @@ FROM python:3.9-slim
 LABEL maintainer="TXMERLXN <txmerlxn@example.com>"
 LABEL description="Telegram Bot for AI Product Photo Generation"
 
-# Обновление системных пакетов
+# Установка системных зависимостей
 RUN apt-get update && apt-get install -y \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
+# Создание пользователя для безопасности
+RUN useradd -m appuser
+USER appuser
+
 # Рабочая директория
-WORKDIR /app
+WORKDIR /home/appuser/app
 
 # Копирование зависимостей
-COPY requirements.txt .
+COPY --chown=appuser:appuser requirements.txt .
 
 # Установка зависимостей
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Копирование исходного кода
-COPY . .
+COPY --chown=appuser:appuser . .
 
 # Переменные окружения
 ENV BOT_TOKEN=${BOT_TOKEN}
@@ -29,8 +33,8 @@ ENV WEBHOOK_PORT=${WEBHOOK_PORT:-8080}
 ENV USE_WEBHOOK=true
 ENV PYTHONUNBUFFERED=1
 
-# Порт для webhook (соответствует требованиям Timeweb Cloud)
+# Порт для webhook
 EXPOSE 8080
 
-# Команда запуска с gunicorn и ограничением ресурсов
+# Команда запуска
 CMD ["gunicorn", "-b", "0.0.0.0:8080", "-w", "2", "-k", "uvicorn.workers.UvicornWorker", "bot_new:main", "--log-level", "warning"]
