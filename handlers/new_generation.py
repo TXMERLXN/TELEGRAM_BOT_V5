@@ -55,6 +55,9 @@ async def process_product_photo(message: Message, state: FSMContext, bot: Bot):
     product_photo_url = f"file://{temp_file_path}"
     if not product_photo_url:
         raise ValueError("Failed to generate product photo URL")
+        
+    # Сохраняем URL в состоянии
+    await state.update_data(product_photo_url=product_photo_url)
 
     await state.update_data(
         product_photo_url=product_photo_url,
