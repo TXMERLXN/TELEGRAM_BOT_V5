@@ -2,6 +2,8 @@ import os
 import sys
 import logging
 import asyncio
+import tempfile
+import fcntl
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
@@ -28,6 +30,20 @@ logger = logging.getLogger(__name__)
 # Инициализация сервисов
 integration_service = IntegrationService(config.runninghub.accounts)
 
+def ensure_single_instance():
+    try:
+        lock_file = open(os.path.join(tempfile.gettempdir(), 'telegram_bot.lock'), 'w')
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (IOError, BlockingIOError):
+        logger.error("Another instance of the bot is already running.")
+        sys.exit(1)
+
+async def global_error_handler(update, exception):
+    """Централизованная обработка необработанных исключений"""
+    logger.error(f"Unhandled error: {exception}")
+    # TODO: Реализовать отправку уведомления администратору
+    # await send_error_notification(exception)
+
 async def on_startup(bot: Bot, dispatcher: Dispatcher):
     """Действия при запуске бота"""
     logger.info("====== Starting bot ======")
@@ -38,8 +54,11 @@ async def on_startup(bot: Bot, dispatcher: Dispatcher):
         
         # Запуск обработчика очереди с глобальным event loop
         await task_queue.start()
+        
+        # Настройка webhook
+        await setup_webhook(bot)
     except Exception as e:
-        logger.error(f"Failed to initialize integration service: {str(e)}", exc_info=True)
+        logger.error(f"Failed to initialize bot: {str(e)}", exc_info=True)
         sys.exit(1)
     
     logger.info("==========================")
@@ -50,96 +69,65 @@ async def on_shutdown(bot: Bot, dispatcher: Dispatcher):
     logger.info("====== Shutting down bot ======")
     
     try:
-        # Остановка обработчика очереди
         await task_queue.stop()
-        
         await integration_service.shutdown()
-        logger.info("Successfully shut down integration service")
-        
-        # Закрытие event loop
-        event_loop_manager.close()
+        logger.info("Successfully shut down services")
     except Exception as e:
         logger.error(f"Error during shutdown: {str(e)}", exc_info=True)
+    
+    # Закрываем сессию бота
+    await bot.session.close()
+
+async def setup_webhook(bot: Bot):
+    WEBHOOK_URL = f"https://{config.WEBHOOK_HOST}/webhook/{config.BOT_TOKEN}"
+    await bot.set_webhook(
+        url=WEBHOOK_URL,
+        drop_pending_updates=True,
+        max_connections=100
+    )
 
 def setup_bot():
-    """Настройка бота и диспетчера"""
-    load_dotenv()
+    # Создание бота и диспетчера
+    bot = Bot(token=config.BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    dp = Dispatcher()
 
-    bot_token = os.getenv('BOT_TOKEN')
-    if not bot_token:
-        logger.error("Bot token not found in environment variables")
-        sys.exit(1)
-
-    bot = Bot(
-        token=bot_token, 
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-    )
-    
-    dispatcher = Dispatcher()
-    
     # Регистрация роутеров
-    dispatcher.include_routers(
-        base_router, 
-        generation_router
-    )
+    dp.include_router(base_router)
+    dp.include_router(generation_router)
 
-    # Регистрация обработчиков событий
-    dispatcher.startup.register(on_startup)
-    dispatcher.shutdown.register(on_shutdown)
+    # Регистрация глобального обработчика ошибок
+    dp.errors.register(global_error_handler)
 
-    return bot, dispatcher
+    # Настройка событий запуска и остановки
+    dp.startup.register(on_startup)
+    dp.shutdown.register(on_shutdown)
+
+    return bot, dp
 
 def main():
-    """Основная функция запуска"""
-    bot, dispatcher = setup_bot()
-    
+    # Обеспечение единственного экземпляра
+    ensure_single_instance()
+
+    # Загрузка переменных окружения
+    load_dotenv()
+
+    # Настройка бота
+    bot, dp = setup_bot()
+
+    # Запуск бота
     try:
-        # Запуск polling с использованием глобального event loop
-        event_loop_manager.run(
-            dispatcher.start_polling(
-                bot, 
-                skip_updates=True
-            )
-        )
-    except asyncio.CancelledError:
-        logger.info("Bot polling cancelled")
-    except KeyboardInterrupt:
-        logger.info("Bot polling interrupted by user")
+        # Выбор режима запуска в зависимости от конфигурации
+        if config.USE_WEBHOOK:
+            app = web.Application()
+            SimpleRequestHandler(dispatcher=dp, bot=bot).register(app, path=f"/webhook/{config.BOT_TOKEN}")
+            setup_application(app, dp, bot=bot)
+            web.run_app(app, host=config.WEBHOOK_HOST, port=config.WEBHOOK_PORT)
+        else:
+            # Классический режим long polling
+            asyncio.run(dp.start_polling(bot))
     except Exception as e:
-        logger.error(f"Error during bot polling: {str(e)}", exc_info=True)
+        logger.error(f"Bot startup failed: {e}", exc_info=True)
         sys.exit(1)
-    finally:
-        # Гарантированная остановка всех компонентов
-        try:
-            # Остановка polling с таймаутом
-            if dispatcher:
-                try:
-                    event_loop_manager.run(
-                        asyncio.wait_for(dispatcher.stop_polling(), timeout=5.0)
-                    )
-                except asyncio.TimeoutError:
-                    logger.warning("Timeout during polling stop")
-            
-            # Остановка интеграционного сервиса
-            try:
-                event_loop_manager.run(
-                    asyncio.wait_for(integration_service.shutdown(), timeout=5.0)
-                )
-            except asyncio.TimeoutError:
-                logger.warning("Timeout during integration service shutdown")
-            
-            # Остановка обработчика очереди
-            try:
-                event_loop_manager.run(
-                    asyncio.wait_for(task_queue.stop(), timeout=5.0)
-                )
-            except asyncio.TimeoutError:
-                logger.warning("Timeout during task queue stop")
-            
-            # Закрытие event loop
-            event_loop_manager.close()
-        except Exception as shutdown_error:
-            logger.error(f"Error during final shutdown: {shutdown_error}", exc_info=True)
 
 if __name__ == "__main__":
     main()
