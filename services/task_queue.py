@@ -66,12 +66,16 @@ class TaskQueue:
         # Отменяем основной обработчик
         if self._task:
             try:
-                self._task.cancel()
-                await asyncio.wait_for(self._task, timeout=1.0)
+                # Создаем новую задачу в текущем loop для отмены
+                cancel_task = asyncio.create_task(self._task.cancel())
+                await asyncio.wait_for(cancel_task, timeout=1.0)
             except (asyncio.CancelledError, asyncio.TimeoutError):
                 pass
             except Exception as e:
                 logger.error(f"Error during task cancellation: {e}")
+                # Принудительно завершаем задачу, если отмена не удалась
+                if not self._task.done():
+                    self._task.cancel()
 
     async def _process_queue(self) -> None:
         """Обрабатывает задачи из очереди"""
