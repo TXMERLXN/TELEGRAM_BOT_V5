@@ -44,12 +44,26 @@ class TaskQueue:
     async def stop(self) -> None:
         """Останавливает обработчик очереди"""
         self._running = False
+        
+        # Отменяем все задачи в очереди
+        while not self.queue.empty():
+            task = self.queue.get_nowait()
+            if hasattr(task, 'callback'):
+                try:
+                    await task.callback(None)
+                except Exception:
+                    pass
+            self.queue.task_done()
+
+        # Отменяем основной обработчик
         if self._task:
             self._task.cancel()
             try:
                 await self._task
             except asyncio.CancelledError:
                 pass
+            except Exception as e:
+                logger.error(f"Error during shutdown: {e}")
 
     async def _process_queue(self) -> None:
         """Обрабатывает задачи из очереди"""
