@@ -73,7 +73,9 @@ class TaskQueue:
                                 await task.callback
                             else:
                                 # Если это корутинная функция, создаем задачу
-                                await asyncio.create_task(task.callback(None))
+                                task_coro = task.callback(None)
+                                if task_coro is not None:
+                                    asyncio.create_task(task_coro)
                         else:
                             # Если это не корутина, выполняем синхронно через run_in_executor
                             await self.loop.run_in_executor(
