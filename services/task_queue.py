@@ -48,34 +48,40 @@ class TaskQueue:
         """Останавливает обработчик очереди"""
         self._running = False
         
-        # Получаем текущий event loop
-        loop = asyncio.get_running_loop()
+        # Создаем новый event loop для отмены задач
+        new_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(new_loop)
         
-        # Отменяем все задачи в очереди
-        while not self.queue.empty():
-            task = self.queue.get_nowait()
-            if hasattr(task, 'callback'):
-                try:
-                    # Создаем новую задачу в текущем loop
-                    callback_task = loop.create_task(task.callback(None))
-                    await callback_task
-                except Exception:
-                    pass
-            self.queue.task_done()
+        try:
+            # Отменяем все задачи в очереди
+            while not self.queue.empty():
+                task = self.queue.get_nowait()
+                if hasattr(task, 'callback'):
+                    try:
+                        # Создаем новую задачу в новом loop
+                        callback_task = new_loop.create_task(task.callback(None))
+                        new_loop.run_until_complete(callback_task)
+                    except Exception:
+                        pass
+                self.queue.task_done()
 
-        # Отменяем основной обработчик
-        if self._task:
-            try:
-                # Создаем новую задачу в текущем loop для отмены
-                cancel_task = asyncio.create_task(self._task.cancel())
-                await asyncio.wait_for(cancel_task, timeout=1.0)
-            except (asyncio.CancelledError, asyncio.TimeoutError):
-                pass
-            except Exception as e:
-                logger.error(f"Error during task cancellation: {e}")
-                # Принудительно завершаем задачу, если отмена не удалась
-                if not self._task.done():
-                    self._task.cancel()
+            # Отменяем основной обработчик
+            if self._task:
+                try:
+                    # Создаем новую задачу в новом loop для отмены
+                    cancel_task = new_loop.create_task(self._task.cancel())
+                    new_loop.run_until_complete(asyncio.wait_for(cancel_task, timeout=1.0))
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+                except Exception as e:
+                    logger.error(f"Error during task cancellation: {e}")
+                    # Принудительно завершаем задачу, если отмена не удалась
+                    if not self._task.done():
+                        self._task.cancel()
+        finally:
+            # Восстанавливаем оригинальный event loop
+            new_loop.close()
+            asyncio.set_event_loop(asyncio.get_event_loop())
 
     async def _process_queue(self) -> None:
         """Обрабатывает задачи из очереди"""
