@@ -22,7 +22,7 @@ class TaskQueue:
         self._running = False
         self._task = None
         self._lock = asyncio.Lock()
-        self.loop = asyncio.get_event_loop()
+        self.loop = asyncio.get_running_loop()
 
     async def add_task(
         self,
