@@ -3,7 +3,7 @@ import logging
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, URLInputFile
+from aiogram.types import Message, URLInputFile, CallbackQuery
 from aiogram.fsm.state import State, StatesGroup
 
 from services.integration import integration_service
