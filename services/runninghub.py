@@ -21,18 +21,33 @@ class RunningHubAPI:
     async def upload_image(self, api_key: str, image_url: str) -> Optional[str]:
         """Загружает изображение в RunningHub"""
         session = await self._get_session()
-        async with session.post(
-            f"{self.api_url}/task/openapi/upload",
-            headers={"Authorization": f"Bearer {api_key}"},
-            data={
-                "file": image_url,
-                "fileType": "image"
-            }
-        ) as response:
-            if response.status == 200:
-                data = await response.json()
-                return data.get("data", {}).get("fileName")
-            return None
+        
+        # Сначала скачиваем изображение
+        async with session.get(image_url) as download_response:
+            if download_response.status != 200:
+                return None
+                
+            image_data = await download_response.read()
+            
+            # Теперь загружаем в RunningHub
+            form_data = aiohttp.FormData()
+            form_data.add_field(
+                'file',
+                image_data,
+                filename='image.jpg',
+                content_type='image/jpeg'
+            )
+            form_data.add_field('fileType', 'image')
+            
+            async with session.post(
+                f"{self.api_url}/task/openapi/upload",
+                headers={"Authorization": f"Bearer {api_key}"},
+                data=form_data
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return data.get("data", {}).get("fileName")
+                return None
 
     async def create_task(
         self,
