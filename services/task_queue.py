@@ -97,28 +97,45 @@ class TaskQueue:
 
             # Ожидаем завершения всех callback задач
             if pending_tasks:
-                done, pending = await asyncio.wait(
-                    pending_tasks,
-                    timeout=5.0,
-                    return_when=asyncio.ALL_COMPLETED
-                )
-                
-                if pending:
-                    logger.warning(f"{len(pending)} callback tasks still pending")
-                    for task in pending:
-                        if task._loop is not self.loop:
-                            logger.debug(f"Task {task.get_name()} belongs to different loop, skipping cancellation")
-                            continue
-                        task.cancel()
-                        try:
-                            await task
-                        except asyncio.CancelledError:
-                            pass
-                        except Exception as e:
-                            logger.error(f"Error cancelling pending task: {e}", exc_info=True)
+                try:
+                    done, pending = await asyncio.wait(
+                        pending_tasks,
+                        timeout=5.0,
+                        return_when=asyncio.ALL_COMPLETED
+                    )
+                    
+                    if pending:
+                        logger.warning(f"{len(pending)} callback tasks still pending")
+                        for task in pending:
+                            # Проверяем что задача принадлежит текущему loop
+                            if hasattr(task, '_loop') and task._loop is not self.loop:
+                                logger.debug(f"Task {task.get_name()} belongs to different loop, skipping cancellation")
+                                continue
+                                
+                            # Создаем новую задачу в текущем loop для отмены
+                            cancel_task = self.loop.create_task(self._cancel_task(task))
+                            try:
+                                await cancel_task
+                            except Exception as e:
+                                logger.error(f"Error during task cancellation: {e}", exc_info=True)
+                except Exception as e:
+                    logger.error(f"Error while waiting for tasks completion: {e}", exc_info=True)
 
             # Освобождаем все аккаунты
             await self.account_manager.release_all_accounts()
+
+    async def _cancel_task(self, task: asyncio.Task) -> None:
+        """Корректно отменяет задачу"""
+        if task.done():
+            return
+            
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"Error during task execution: {e}", exc_info=True)
 
     async def _process_queue(self) -> None:
         """Обрабатывает задачи из очереди"""
