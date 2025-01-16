@@ -52,15 +52,12 @@ async def process_product_photo(message: Message, state: FSMContext, bot: Bot):
     if not temp_file_path:
         raise ValueError("Temp file path is not defined")
         
-    product_photo_url = f"file://{temp_file_path}"
-    if not product_photo_url:
+    if not temp_file_path:
         raise ValueError("Failed to generate product photo URL")
         
-    # Сохраняем URL в состоянии
-    await state.update_data(product_photo_url=product_photo_url)
-
+    # Сохраняем URL и ID в состоянии
     await state.update_data(
-        product_photo_url=product_photo_url,
+        product_photo_url=f"file://{temp_file_path}",
         product_photo_id=photo.file_id
     )
     await state.set_state(GenerationStates.waiting_for_background)
@@ -116,6 +113,12 @@ async def handle_generation_result(result: dict, message: Message, state: FSMCon
 @router.callback_query(F.data == "cancel")
 async def cancel_generation(callback: CallbackQuery, state: FSMContext):
     """Отмена генерации"""
+    data = await state.get_data()
+    task_id = data.get("task_id")
+    
+    if task_id:
+        await integration_service.cancel_task(task_id)
+    
     await state.clear()
     await callback.message.answer("Генерация отменена", reply_markup=get_main_menu_keyboard())
     await callback.answer()
