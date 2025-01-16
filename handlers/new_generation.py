@@ -3,9 +3,8 @@ import logging
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
-from aiogram.types import Message, URLInputFile
-from aiogram.types import CallbackQuery
 from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import Message, URLInputFile, CallbackQuery
 
 from services.integration import integration_service
 from keyboards import get_main_menu_keyboard, get_cancel_keyboard, get_result_keyboard
