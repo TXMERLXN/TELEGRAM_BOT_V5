@@ -9,7 +9,7 @@ class RunningHubAccount:
     max_tasks: int = 5
 
 class RunningHubAPI:
-    def __init__(self, api_url: str = "https://api.runninghub.com"):
+    def __init__(self, api_url: str = "https://www.runninghub.ai"):
         self._session = None
         self.api_url = api_url
 
