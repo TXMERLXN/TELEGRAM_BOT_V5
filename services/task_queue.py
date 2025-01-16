@@ -56,13 +56,19 @@ class TaskQueue:
             # Отменяем все задачи в очереди
             while not self.queue.empty():
                 task = self.queue.get_nowait()
-                if hasattr(task, 'callback'):
+                if hasattr(task, 'callback') and asyncio.iscoroutinefunction(task.callback):
                     try:
                         # Создаем новую задачу в новом loop
                         callback_task = new_loop.create_task(task.callback(None))
                         new_loop.run_until_complete(callback_task)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.error(f"Error during callback execution: {e}")
+                elif hasattr(task, 'callback'):
+                    try:
+                        # Если callback не корутина, просто вызываем его
+                        task.callback(None)
+                    except Exception as e:
+                        logger.error(f"Error during callback execution: {e}")
                 self.queue.task_done()
 
             # Отменяем основной обработчик
