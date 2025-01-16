@@ -107,46 +107,49 @@ class EventLoopManager:
             raise
 
     def close(self):
-        """Безопасное закрытие event loop"""
-        logger.info("Closing event loop")
+        """Безопасное закрытие event loop с принудительной остановкой"""
+        logger.info("Initiating event loop closure")
         try:
-            # Проверяем состояние loop перед закрытием
-            if not self._loop.is_closed():
-                # Останавливаем все текущие задачи
+            # Проверяем, что loop существует и не закрыт
+            if self._loop and not self._loop.is_closed():
+                # Получаем все активные задачи
                 pending_tasks = asyncio.all_tasks(loop=self._loop)
                 
-                # Отменяем все незавершенные задачи
-                for task in pending_tasks:
-                    if not task.done():
-                        try:
-                            task.cancel()
-                            logger.info(f"Cancelled pending task: {task}")
-                        except Exception as cancel_error:
-                            logger.error(f"Error cancelling task: {cancel_error}")
-                
-                # Ожидаем завершения всех задач
                 if pending_tasks:
+                    logger.info(f"Cancelling {len(pending_tasks)} pending tasks")
+                    
+                    # Отменяем все задачи
+                    for task in pending_tasks:
+                        if not task.done():
+                            task.cancel()
+                    
+                    # Ожидаем завершения задач с таймаутом
                     try:
-                        # Используем run_until_complete для синхронного ожидания
                         self._loop.run_until_complete(
-                            asyncio.gather(*pending_tasks, return_exceptions=True)
+                            asyncio.wait(pending_tasks, timeout=5.0)
                         )
-                    except Exception as gather_error:
-                        logger.error(f"Error during task gathering: {gather_error}")
+                    except asyncio.TimeoutError:
+                        logger.warning("Timeout while waiting for tasks to complete")
                 
-                # Корректно закрываем loop
+                # Останавливаем асинхронные генераторы
                 try:
                     self._loop.run_until_complete(self._loop.shutdown_asyncgens())
-                except Exception as shutdown_error:
-                    logger.error(f"Error shutting down async generators: {shutdown_error}")
+                except Exception as gen_error:
+                    logger.error(f"Error shutting down async generators: {gen_error}")
                 
-                # Закрытие loop
-                self._loop.close()
-                logger.info("Event loop successfully closed")
+                # Принудительное закрытие loop
+                try:
+                    # Используем stop() для остановки loop
+                    self._loop.stop()
+                    
+                    # Форсированное закрытие
+                    self._loop.close()
+                    logger.info("Event loop successfully closed")
+                except Exception as close_error:
+                    logger.error(f"Error during event loop closure: {close_error}")
             else:
-                logger.warning("Event loop is already closed")
-        except RuntimeError as runtime_err:
-            logger.error(f"Runtime error during event loop closure: {runtime_err}")
+                logger.warning("Event loop is already closed or not initialized")
+        
         except Exception as e:
             logger.error(f"Unexpected error during event loop closure: {e}", exc_info=True)
         finally:

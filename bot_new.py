@@ -111,15 +111,30 @@ def main():
     finally:
         # Гарантированная остановка всех компонентов
         try:
-            # Остановка polling
+            # Остановка polling с таймаутом
             if dispatcher:
-                event_loop_manager.run(dispatcher.stop_polling())
+                try:
+                    event_loop_manager.run(
+                        asyncio.wait_for(dispatcher.stop_polling(), timeout=5.0)
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("Timeout during polling stop")
             
             # Остановка интеграционного сервиса
-            event_loop_manager.run(integration_service.shutdown())
+            try:
+                event_loop_manager.run(
+                    asyncio.wait_for(integration_service.shutdown(), timeout=5.0)
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Timeout during integration service shutdown")
             
             # Остановка обработчика очереди
-            event_loop_manager.run(task_queue.stop())
+            try:
+                event_loop_manager.run(
+                    asyncio.wait_for(task_queue.stop(), timeout=5.0)
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Timeout during task queue stop")
             
             # Закрытие event loop
             event_loop_manager.close()
