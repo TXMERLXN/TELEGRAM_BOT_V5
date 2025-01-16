@@ -16,12 +16,13 @@ class Task:
 
 class TaskQueue:
     def __init__(self, account_manager: AccountManager):
-        self.queue = asyncio.Queue()
+        self.loop = asyncio.get_event_loop()
+        self.queue = asyncio.Queue(loop=self.loop)
         self.account_manager = account_manager
         self.runninghub_api = RunningHubAPI()
         self._running = False
         self._task = None
-        self._lock = asyncio.Lock()
+        self._lock = asyncio.Lock(loop=self.loop)
         self._tasks = set()  # Хранение всех активных задач
         
     async def add_task(
