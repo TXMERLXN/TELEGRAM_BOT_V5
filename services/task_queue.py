@@ -17,10 +17,10 @@ class Task:
 
 class TaskQueue:
     def __init__(self, account_manager: AccountManager):
-        # Используем глобальный event loop из менеджера с дополнительной защитой
+        # Используем глобальный event loop с дополнительной защитой
         self.loop = event_loop_manager.loop
         
-        # Создаем очередь в текущем event loop с явной привязкой
+        # Создаем очередь с использованием глобального event loop
         self.queue = asyncio.Queue(loop=self.loop)
         
         self.account_manager = account_manager
@@ -50,13 +50,15 @@ class TaskQueue:
         logger.info(f"Added new task to queue (queue size: {self.queue.qsize()})")
         return True
 
-    async def start(self) -> None:
-        """Запускает обработчик очереди"""
-        if self._running:
-            return
-
-        self._running = True
-        self._task = asyncio.create_task(self._process_queue())
+    async def start(self):
+        """Запуск обработчика очереди с использованием глобального event loop"""
+        if not self._running:
+            async with self._lock:
+                if not self._running:
+                    self._running = True
+                    # Создаем задачу с использованием глобального event loop
+                    self._task = event_loop_manager.create_task(self._process_queue())
+                    self._tasks.add(self._task)
 
     async def stop(self) -> None:
         """Улучшенная остановка обработчика очереди"""
@@ -124,16 +126,14 @@ class TaskQueue:
         except Exception as e:
             logger.error(f"Ошибка при выполнении задачи: {e}", exc_info=True)
 
-    async def _process_queue(self) -> None:
-        """Обрабатывает задачи из очереди"""
+    async def _process_queue(self):
+        """Обработка задач из очереди с расширенной диагностикой"""
         while self._running:
             try:
-                # Проверяем доступность аккаунтов
-                if not self.account_manager.has_available_accounts():
-                    await asyncio.sleep(1)
-                    continue
-                    
+                # Используем глобальный event loop для ожидания задачи
                 task = await asyncio.wait_for(self.queue.get(), timeout=5.0)
+                
+                # Обработка задачи с использованием глобального event loop
                 api_key = await self.account_manager.get_available_account()
                 
                 if not api_key:
@@ -171,13 +171,20 @@ class TaskQueue:
                 finally:
                     await self.account_manager.release_account(api_key)
                     self.queue.task_done()
-
             except asyncio.TimeoutError:
-                logger.warning("Queue processing timed out")
+                # Таймаут - нормальное состояние, просто продолжаем цикл
                 continue
             except Exception as e:
+                # Логирование и обработка неожиданных ошибок
                 logger.error(f"Unexpected error in queue processing: {e}", exc_info=True)
-                await asyncio.sleep(1)
+                
+                # Попытка восстановления
+                try:
+                    # Пересоздаем очередь с использованием глобального event loop
+                    self.queue = asyncio.Queue(loop=self.loop)
+                except Exception as recovery_error:
+                    logger.error(f"Failed to recover queue: {recovery_error}", exc_info=True)
+                    break
 
     async def _wait_for_task_completion(
         self,

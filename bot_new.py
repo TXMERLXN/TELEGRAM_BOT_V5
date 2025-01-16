@@ -100,8 +100,13 @@ def main():
             skip_updates=True,
             loop=event_loop_manager.loop
         )
+    except asyncio.CancelledError:
+        logger.info("Bot polling cancelled")
+    except KeyboardInterrupt:
+        logger.info("Bot polling interrupted by user")
     except Exception as e:
         logger.error(f"Error during bot polling: {str(e)}", exc_info=True)
+        sys.exit(1)
 
 if __name__ == "__main__":
     event_loop_manager.run(main())
