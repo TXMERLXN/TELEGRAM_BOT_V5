@@ -8,7 +8,7 @@ build:
   requirementsPath: requirements.txt
 
 run:
-  command: python bot_new.py
+  command: bash deploy_dev.sh
   persistenceMount: /data
 
 monitoring:
@@ -19,9 +19,11 @@ env:
   - name: PORT
     value: "8080"
   - name: WEBHOOK_HOST
-    value: '{{ WEBHOOK_HOST }}'
-  - name: BOT_TOKEN  
-    value: '{{ BOT_TOKEN }}'
+    value: bot-v5-dev.amvera.io
+  - name: BOT_TOKEN
+    value: 7875071911:AAFUbiivWfJr2E2Zhge4GCFWx5AacKzysmM
+  - name: USE_WEBHOOK
+    value: "true"
   - name: RUNNINGHUB_API_KEY_1
     value: '{{ RUNNINGHUB_API_KEY_1 }}'
   - name: RUNNINGHUB_API_KEY_2
