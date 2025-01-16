@@ -65,23 +65,13 @@ class TaskQueue:
 
         # Отменяем основной обработчик
         if self._task:
-            # Убедимся, что задача создана в текущем loop
-            if self._task._loop is not loop:
+            try:
                 self._task.cancel()
-                try:
-                    await asyncio.wait_for(self._task, timeout=1.0)
-                except (asyncio.CancelledError, asyncio.TimeoutError):
-                    pass
-                except Exception as e:
-                    logger.error(f"Error during shutdown: {e}")
-            else:
-                self._task.cancel()
-                try:
-                    await self._task
-                except asyncio.CancelledError:
-                    pass
-                except Exception as e:
-                    logger.error(f"Error during task cancellation: {e}")
+                await asyncio.wait_for(self._task, timeout=1.0)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+            except Exception as e:
+                logger.error(f"Error during task cancellation: {e}")
 
     async def _process_queue(self) -> None:
         """Обрабатывает задачи из очереди"""
