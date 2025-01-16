@@ -149,6 +149,18 @@ class TaskQueue:
         if task.done():
             return
             
+        # Проверяем принадлежность задачи текущему loop
+        if hasattr(task, '_loop') and task._loop is not self.loop:
+            logger.debug(f"Task belongs to different loop {task._loop}, current loop {self.loop}")
+            if task._loop.is_running():
+                # Создаем задачу отмены в правильном loop
+                cancel_task = task._loop.create_task(self._cancel_task(task))
+                try:
+                    await cancel_task
+                except Exception as e:
+                    logger.error(f"Error cancelling task in different loop: {e}", exc_info=True)
+            return
+            
         task.cancel()
         try:
             await task
