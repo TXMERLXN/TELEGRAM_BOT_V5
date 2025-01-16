@@ -55,30 +55,40 @@ class TaskQueue:
     async def stop(self) -> None:
         """Останавливает обработчик очереди"""
         async with self._lock:
+            if not self._running:
+                return
+                
             self._running = False
             
-            # Отменяем все задачи в очереди
+            # Отменяем основной обработчик
+            if self._task and not self._task.done():
+                try:
+                    self._task.cancel()
+                    await asyncio.wait_for(self._task, timeout=5.0)
+                except asyncio.CancelledError:
+                    logger.debug("Main task cancelled successfully")
+                except asyncio.TimeoutError:
+                    logger.warning("Timeout while cancelling main task")
+                except Exception as e:
+                    logger.error(f"Error during task cancellation: {e}")
+                finally:
+                    self._task = None
+
+            # Обрабатываем оставшиеся задачи в очереди
+            pending_tasks = []
             while not self.queue.empty():
                 task = self.queue.get_nowait()
-                if hasattr(task, 'callback') and task.callback:
+                if task.callback:
                     try:
-                        # Проверяем, что callback существует
-                        if task.callback is None:
-                            continue
-                            
-                        # Если callback - корутина, создаем задачу в текущем loop
+                        # Создаем задачу для callback в текущем loop
                         if asyncio.iscoroutinefunction(task.callback):
-                            if asyncio.iscoroutine(task.callback):
-                                # Если это уже корутина, await напрямую
-                                await task.callback
-                            else:
-                                # Если это корутинная функция, создаем задачу
-                                task_coro = task.callback(None)
-                                if task_coro is not None:
-                                    # Используем сохраненный loop для создания задачи
-                                    self.loop.create_task(task_coro)
+                            callback_task = self.loop.create_task(
+                                task.callback(None) if not asyncio.iscoroutine(task.callback)
+                                else task.callback
+                            )
+                            pending_tasks.append(callback_task)
                         else:
-                            # Если это не корутина, выполняем синхронно через run_in_executor
+                            # Для синхронных callback'ов используем run_in_executor
                             await self.loop.run_in_executor(
                                 None,
                                 task.callback,
@@ -88,18 +98,17 @@ class TaskQueue:
                         logger.error(f"Error during callback execution: {e}", exc_info=True)
                 self.queue.task_done()
 
-            # Отменяем основной обработчик
-            if self._task and not self._task.done():
+            # Ожидаем завершения всех callback задач
+            if pending_tasks:
                 try:
-                    self._task.cancel()
-                    await asyncio.wait_for(self._task, timeout=1.0)
-                except (asyncio.CancelledError, asyncio.TimeoutError):
-                    pass
+                    await asyncio.wait(pending_tasks, timeout=5.0)
+                except asyncio.TimeoutError:
+                    logger.warning("Timeout while waiting for callback tasks")
                 except Exception as e:
-                    logger.error(f"Error during task cancellation: {e}")
+                    logger.error(f"Error while waiting for callback tasks: {e}")
 
-            # Ожидаем завершения всех задач
-            await self.queue.join()
+            # Освобождаем все аккаунты
+            await self.account_manager.release_all_accounts()
 
     async def _process_queue(self) -> None:
         """Обрабатывает задачи из очереди"""
