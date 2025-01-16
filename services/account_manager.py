@@ -1,5 +1,5 @@
 import asyncio
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 from dataclasses import dataclass
 from .runninghub import RunningHubAccount, RunningHubAPI
 
