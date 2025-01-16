@@ -8,7 +8,7 @@ from config import config
 class IntegrationService:
     def __init__(self, accounts: Dict[str, Dict[str, Any]]):
         self.runninghub_api = RunningHubAPI(api_url=config.runninghub.api_url)
-        self.account_manager = AccountManager(self.runninghub_api)
+        self.account_manager = AccountManager()
         self.task_queue = TaskQueue(self.account_manager)
         self.accounts = accounts
 

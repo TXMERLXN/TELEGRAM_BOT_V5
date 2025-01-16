@@ -57,4 +57,13 @@ class AccountManager:
         """Закрывает все аккаунты"""
         await self.runninghub_api.close()
 
+    async def initialize(self, accounts: Dict[str, RunningHubAccount]) -> None:
+        """Инициализирует аккаунты"""
+        for account in accounts.values():
+            self.add_account(
+                api_key=account.api_key,
+                workflow_id=account.workflow_id,
+                max_tasks=account.max_tasks
+            )
+
 account_manager = AccountManager()
