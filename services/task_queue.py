@@ -137,6 +137,7 @@ class TaskQueue:
             if results:
                 return results
 
+# Техническое обновление: форсированный деплой
 # Создаем экземпляр TaskQueue
 from .account_manager import account_manager
 task_queue = TaskQueue(account_manager)
