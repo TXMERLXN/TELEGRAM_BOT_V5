@@ -15,12 +15,7 @@ from handlers.base import router as base_router
 from handlers.new_generation import router as generation_router
 from services.integration import IntegrationService
 from services.task_queue import task_queue
-
-# Глобальный event loop
-global_loop = asyncio.get_event_loop()
-
-# Инициализация сервисов
-integration_service = IntegrationService(config.runninghub.accounts)
+from services.event_loop import event_loop_manager
 
 # Настройка логирования
 logging.basicConfig(
@@ -29,6 +24,9 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
+# Инициализация сервисов
+integration_service = IntegrationService(config.runninghub.accounts)
 
 async def on_startup(bot: Bot, dispatcher: Dispatcher):
     """Действия при запуске бота"""
@@ -97,10 +95,10 @@ def main():
         dispatcher.run_polling(
             bot, 
             skip_updates=True,
-            loop=global_loop
+            loop=event_loop_manager.loop
         )
     except Exception as e:
         logger.error(f"Error during bot polling: {str(e)}", exc_info=True)
 
 if __name__ == "__main__":
-    asyncio.run(main(), loop=global_loop)
+    event_loop_manager.run(main())

@@ -4,6 +4,7 @@ from typing import Dict, Optional, Any
 from dataclasses import dataclass
 from .account_manager import AccountManager
 from .runninghub import RunningHubAPI
+from .event_loop import event_loop_manager
 
 logger = logging.getLogger(__name__)
 
@@ -16,9 +17,8 @@ class Task:
 
 class TaskQueue:
     def __init__(self, account_manager: AccountManager):
-        # Используем глобальный event loop
-        import asyncio
-        self.loop = asyncio.get_event_loop()
+        # Используем глобальный event loop из менеджера
+        self.loop = event_loop_manager.loop
         self.queue = asyncio.Queue(loop=self.loop)
         self.account_manager = account_manager
         self.runninghub_api = RunningHubAPI()
