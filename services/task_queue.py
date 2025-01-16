@@ -73,7 +73,7 @@ class TaskQueue:
                                 await task.callback
                             else:
                                 # Если это корутинная функция, создаем задачу
-                                await asyncio.create_task(task.callback(None))
+                                await asyncio.create_task(task.callback(None), loop=self.loop)
                         else:
                             # Если это не корутина, выполняем синхронно через run_in_executor
                             await self.loop.run_in_executor(
@@ -89,7 +89,7 @@ class TaskQueue:
             if self._task and not self._task.done():
                 try:
                     self._task.cancel()
-                    await asyncio.wait_for(self._task, timeout=1.0, loop=self.loop)
+                    await asyncio.wait_for(self._task, timeout=1.0)
                 except (asyncio.CancelledError, asyncio.TimeoutError):
                     pass
                 except Exception as e:
