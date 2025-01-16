@@ -108,12 +108,50 @@ class EventLoopManager:
 
     def close(self):
         """Безопасное закрытие event loop"""
-        if self._loop and not self._loop.is_closed():
-            try:
-                logger.info("Closing event loop")
+        logger.info("Closing event loop")
+        try:
+            # Проверяем состояние loop перед закрытием
+            if not self._loop.is_closed():
+                # Останавливаем все текущие задачи
+                pending_tasks = asyncio.all_tasks(loop=self._loop)
+                
+                # Отменяем все незавершенные задачи
+                for task in pending_tasks:
+                    if not task.done():
+                        try:
+                            task.cancel()
+                            logger.info(f"Cancelled pending task: {task}")
+                        except Exception as cancel_error:
+                            logger.error(f"Error cancelling task: {cancel_error}")
+                
+                # Ожидаем завершения всех задач
+                if pending_tasks:
+                    try:
+                        # Используем run_until_complete для синхронного ожидания
+                        self._loop.run_until_complete(
+                            asyncio.gather(*pending_tasks, return_exceptions=True)
+                        )
+                    except Exception as gather_error:
+                        logger.error(f"Error during task gathering: {gather_error}")
+                
+                # Корректно закрываем loop
+                try:
+                    self._loop.run_until_complete(self._loop.shutdown_asyncgens())
+                except Exception as shutdown_error:
+                    logger.error(f"Error shutting down async generators: {shutdown_error}")
+                
+                # Закрытие loop
                 self._loop.close()
-            except Exception as e:
-                logger.error(f"Ошибка при закрытии event loop: {e}", exc_info=True)
+                logger.info("Event loop successfully closed")
+            else:
+                logger.warning("Event loop is already closed")
+        except RuntimeError as runtime_err:
+            logger.error(f"Runtime error during event loop closure: {runtime_err}")
+        except Exception as e:
+            logger.error(f"Unexpected error during event loop closure: {e}", exc_info=True)
+        finally:
+            # Пересоздаем loop на случай повторного использования
+            self._initialize_loop()
 
 # Создаем единственный экземпляр менеджера event loop
 event_loop_manager = EventLoopManager()

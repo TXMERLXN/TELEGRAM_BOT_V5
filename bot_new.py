@@ -111,6 +111,10 @@ def main():
     finally:
         # Гарантированная остановка всех компонентов
         try:
+            # Остановка polling
+            if dispatcher:
+                event_loop_manager.run(dispatcher.stop_polling())
+            
             # Остановка интеграционного сервиса
             event_loop_manager.run(integration_service.shutdown())
             
