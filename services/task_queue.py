@@ -17,11 +17,12 @@ class Task:
 class TaskQueue:
     def __init__(self, account_manager: AccountManager):
         self.loop = asyncio.get_event_loop()
-        self.queue = asyncio.Queue(loop=self.loop)
+        self.queue = asyncio.Queue()
         self.account_manager = account_manager
         self.runninghub_api = RunningHubAPI()
         self._running = False
         self._task = None
+        self._lock = asyncio.Lock()
 
     async def add_task(
         self,
@@ -47,68 +48,73 @@ class TaskQueue:
 
     async def stop(self) -> None:
         """Останавливает обработчик очереди"""
-        self._running = False
-        
-        # Отменяем все задачи в очереди
-        while not self.queue.empty():
-            task = self.queue.get_nowait()
-            if hasattr(task, 'callback') and task.callback:
-                try:
-                    if asyncio.iscoroutinefunction(task.callback):
-                        await task.callback(None)
-                    else:
-                        task.callback(None)
-                except Exception as e:
-                    logger.error(f"Error during callback execution: {e}")
-            self.queue.task_done()
+        async with self._lock:
+            self._running = False
+            
+            # Отменяем все задачи в очереди
+            while not self.queue.empty():
+                task = self.queue.get_nowait()
+                if hasattr(task, 'callback') and task.callback:
+                    try:
+                        if asyncio.iscoroutinefunction(task.callback):
+                            await task.callback(None)
+                        else:
+                            task.callback(None)
+                    except Exception as e:
+                        logger.error(f"Error during callback execution: {e}")
+                self.queue.task_done()
 
-        # Отменяем основной обработчик
-        if self._task and not self._task.done():
-            try:
-                self._task.cancel()
-                await asyncio.wait_for(self._task, timeout=1.0)
-            except (asyncio.CancelledError, asyncio.TimeoutError):
-                pass
-            except Exception as e:
-                logger.error(f"Error during task cancellation: {e}")
+            # Отменяем основной обработчик
+            if self._task and not self._task.done():
+                try:
+                    self._task.cancel()
+                    await asyncio.wait_for(self._task, timeout=1.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+                except Exception as e:
+                    logger.error(f"Error during task cancellation: {e}")
 
     async def _process_queue(self) -> None:
         """Обрабатывает задачи из очереди"""
         while self._running:
-            task = await self.queue.get()
+            async with self._lock:
+                if not self._running:
+                    break
+                task = await self.queue.get()
 
-            api_key = await self.account_manager.get_available_account()
-            if not api_key:
-                await asyncio.sleep(1)
-                continue
-
-            try:
-                account = self.account_manager.accounts[api_key]
-                task_id = await self.runninghub_api.create_task(
-                    api_key=api_key,
-                    workflow_id=account.workflow_id,
-                    product_image_url=task.product_image_url,
-                    background_image_url=task.background_image_url
-                )
-
-                if task_id:
-                    results = await self._wait_for_task_completion(
-                        api_key=api_key,
-                        task_id=task_id
-                    )
-                    await task.callback(results)
-                else:
-                    await task.callback(None)
-
-            except Exception as e:
-                if task.retries < 3:
-                    task.retries += 1
+                api_key = await self.account_manager.get_available_account()
+                if not api_key:
                     await self.queue.put(task)
-                else:
-                    await task.callback(None)
-            finally:
-                await self.account_manager.release_account(api_key)
-                self.queue.task_done()
+                    await asyncio.sleep(1)
+                    continue
+
+                try:
+                    account = self.account_manager.accounts[api_key]
+                    task_id = await self.runninghub_api.create_task(
+                        api_key=api_key,
+                        workflow_id=account.workflow_id,
+                        product_image_url=task.product_image_url,
+                        background_image_url=task.background_image_url
+                    )
+
+                    if task_id:
+                        results = await self._wait_for_task_completion(
+                            api_key=api_key,
+                            task_id=task_id
+                        )
+                        await task.callback(results)
+                    else:
+                        await task.callback(None)
+
+                except Exception as e:
+                    if task.retries < 3:
+                        task.retries += 1
+                        await self.queue.put(task)
+                    else:
+                        await task.callback(None)
+                finally:
+                    await self.account_manager.release_account(api_key)
+                    self.queue.task_done()
 
     async def _wait_for_task_completion(
         self,
