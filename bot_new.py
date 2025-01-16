@@ -126,10 +126,8 @@ def main():
     except Exception as e:
         logger.error(f"Ошибка при запуске бота: {e}")
         sys.exit(1)
-    finally:
-        # Финальная остановка
-        event_loop_manager.close()
-        logger.info("Bot polling cancelled")
+    
+    return dp  # Возвращаем диспетчер для gunicorn
 
 if __name__ == '__main__':
     main()
