@@ -79,30 +79,9 @@ async def main():
     
     bot, dp = await setup_bot()
     
-    # Создаем aiohttp приложение
-    app = web.Application()
-    webhook_requests_handler = SimpleRequestHandler(
-        dispatcher=dp,
-        bot=bot,
-    )
-    
-    # Регистрируем webhook handler
-    webhook_requests_handler.register(app, path="/webhook")
-    
-    # Настраиваем порт из переменных окружения
-    port = int(os.getenv("PORT", 8000))
-    
-    # Настраиваем веб-приложение
-    setup_application(app, dp, bot=bot)
-    
-    # Запускаем сервер
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    
-    # Бесконечный цикл для работы сервера
-    await asyncio.Event().wait()
+    # Удаляем webhook и запускаем polling
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
