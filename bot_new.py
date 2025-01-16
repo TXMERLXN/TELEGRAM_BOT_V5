@@ -105,8 +105,9 @@ def main():
             executor.start_webhook(
                 webhook_host=webhook_host,
                 webhook_port=webhook_port,
-                webhook_path='/webhook',  
-                skip_updates=True
+                webhook_path='/webhook',
+                host='0.0.0.0',
+                skip_updates=False
             )
         else:
             # Long polling режим
