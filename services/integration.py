@@ -44,3 +44,6 @@ class IntegrationService:
             background_image_url=background_image_url,
             callback=callback
         )
+
+# Создаем и экспортируем экземпляр сервиса
+integration_service = IntegrationService(config.runninghub.accounts)
