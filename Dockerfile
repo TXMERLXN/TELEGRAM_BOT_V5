@@ -26,6 +26,6 @@ ENV USE_WEBHOOK=true
 # Порт для webhook (соответствует требованиям Timeweb Cloud)
 EXPOSE 8080
 
-# Команда запуска с явным указанием порта
-ENTRYPOINT ["python", "-m", "http.server", "8080"]
+# Команда запуска
+ENTRYPOINT ["python"]
 CMD ["bot_new.py"]

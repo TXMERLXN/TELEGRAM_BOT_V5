@@ -8,7 +8,7 @@ import uvloop
 from aiogram import Bot, Dispatcher
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.types import ParseMode
-from aiogram.utils.executor import Executor
+from aiogram.utils.executor import Executor, start_webhook, run_polling
 
 from services.event_loop import event_loop_manager
 from services.task_queue import task_queue
@@ -95,30 +95,33 @@ def main():
     try:
         if use_webhook:
             # Webhook-режим
-            webhook_host = os.getenv('WEBHOOK_HOST', 'https://txmerlxn-telegram-bot-v5-17ee.twc1.net')
+            webhook_host = os.getenv('WEBHOOK_HOST', 'txmerlxn-telegram-bot-v5-17ee.twc1.net')
             webhook_port = int(os.getenv('WEBHOOK_PORT', 8080))
             
-            executor = Executor(dp)
-            executor.on_startup(on_startup)
-            executor.on_shutdown(on_shutdown)
+            # Асинхронный запуск webhook
+            async def on_startup_webhook(dispatcher):
+                await bot.set_webhook(
+                    url=f'https://{webhook_host}/webhook',
+                    drop_pending_updates=True
+                )
+                await on_startup(dispatcher)
             
-            executor.start_webhook(
-                webhook_host=webhook_host,
-                webhook_port=webhook_port,
+            # Запуск через aiogram
+            start_webhook(
+                dispatcher=dp,
                 webhook_path='/webhook',
+                on_startup=on_startup_webhook,
+                on_shutdown=on_shutdown,
                 host='0.0.0.0',
-                skip_updates=False
+                port=webhook_port
             )
         else:
             # Long polling режим
-            event_loop_manager.run(on_startup(dp))
+            dp.startup.register(on_startup)
+            dp.shutdown.register(on_shutdown)
             
             # Запуск polling
-            event_loop_manager.run(dp.start_polling(
-                skip_updates=True,
-                on_startup=on_startup,
-                on_shutdown=on_shutdown
-            ))
+            run_polling(dp)
     
     except Exception as e:
         logger.error(f"Ошибка при запуске бота: {e}")
