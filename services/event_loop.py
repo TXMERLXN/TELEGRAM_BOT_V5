@@ -63,21 +63,47 @@ class EventLoopManager:
     def run(self, coro):
         """Запуск корутины с расширенной обработкой ошибок"""
         try:
+            # Проверка, что передан корректный объект
+            if not asyncio.iscoroutine(coro):
+                coro = asyncio.create_task(coro)
+            
             return self._loop.run_until_complete(coro)
-        except RuntimeError:
-            # Пересоздание event loop при ошибке
-            logger.warning("RuntimeError in event loop, reinitializing")
-            self._initialize_loop()
-            return self._loop.run_until_complete(coro)
+        except RuntimeError as runtime_err:
+            # Обработка ошибок, связанных с закрытием loop
+            if "Event loop is closed" in str(runtime_err):
+                logger.warning("Event loop was closed, reinitializing")
+                self._initialize_loop()
+                return self._loop.run_until_complete(coro)
+            raise
+        except Exception as e:
+            logger.error(f"Ошибка при выполнении корутины: {e}", exc_info=True)
+            raise
 
-    def create_task(self, coro):
-        """Создание задачи в текущем event loop с логированием"""
+    def create_task(self, coro, name=None):
+        """Создание задачи в текущем event loop с расширенной обработкой"""
         try:
-            task = asyncio.ensure_future(coro, loop=self.loop)
-            logger.debug(f"Task created: {task}")
+            # Проверка, что передан корректный объект
+            if not asyncio.iscoroutine(coro):
+                logger.warning("Passed object is not a coroutine, converting")
+                coro = asyncio.create_task(coro)
+            
+            # Создание задачи с именем
+            task = self._loop.create_task(coro, name=name)
+            
+            # Добавление обработчика исключений
+            def exception_handler(task):
+                try:
+                    task.result()
+                except asyncio.CancelledError:
+                    logger.info(f"Задача {name or 'unnamed'} отменена")
+                except Exception as e:
+                    logger.error(f"Необработанное исключение в задаче {name or 'unnamed'}: {e}", exc_info=True)
+            
+            task.add_done_callback(exception_handler)
+            
             return task
         except Exception as e:
-            logger.error(f"Error creating task: {e}", exc_info=True)
+            logger.error(f"Ошибка при создании задачи: {e}", exc_info=True)
             raise
 
     def close(self):

@@ -68,55 +68,50 @@ class TaskQueue:
     async def stop(self) -> None:
         """Улучшенная остановка обработчика очереди"""
         logger.info("Останавливаем обработчик очереди...")
-        
         try:
-            # Устанавливаем флаг остановки
+            # Установка флага остановки
             self._running = False
-            
-            # Защищаем основную задачу от отмены
-            if self._task and not self._task.done():
+
+            # Отмена всех активных задач
+            if self._task:
                 try:
-                    await asyncio.shield(self._task)
+                    # Используем глобальный event loop для отмены задачи
+                    self._task.cancel()
+                    await asyncio.wait([self._task], timeout=5.0)
                 except asyncio.CancelledError:
-                    pass
+                    logger.info("Задача обработчика очереди успешно отменена")
+                except Exception as cancel_error:
+                    logger.error(f"Ошибка при отмене задачи обработчика: {cancel_error}", exc_info=True)
+
+            # Очистка множества задач
+            for task in list(self._tasks):
+                try:
+                    task.cancel()
+                except Exception as task_error:
+                    logger.error(f"Ошибка при отмене задачи: {task_error}", exc_info=True)
             
-            # Корректно завершаем все активные задачи
-            pending_tasks = [
-                task for task in self._tasks 
-                if not task.done()
-            ]
-            
-            if pending_tasks:
-                # Собираем результаты с обработкой исключений
-                results = await asyncio.gather(
-                    *pending_tasks, 
-                    return_exceptions=True
-                )
-                
-                # Логируем любые исключения
-                for result in results:
-                    if isinstance(result, Exception):
-                        logger.error(f"Ошибка в задаче: {result}")
-            
-            # Очищаем оставшиеся задачи
-            self._tasks.clear()
-            
-            # Обработка оставшихся элементов в очереди
+            # Ожидание завершения всех задач
+            if self._tasks:
+                try:
+                    await asyncio.wait(list(self._tasks), timeout=10.0)
+                except asyncio.TimeoutError:
+                    logger.warning("Тайм-аут при ожидании завершения задач")
+
+            # Очистка очереди
             while not self.queue.empty():
                 try:
-                    task = self.queue.get_nowait()
-                    if task.callback:
-                        try:
-                            await task.callback(None)
-                        except Exception as e:
-                            logger.error(f"Ошибка в callback: {e}")
+                    self.queue.get_nowait()
+                    self.queue.task_done()
                 except asyncio.QueueEmpty:
                     break
-        
+
         except Exception as e:
             logger.error(f"Критическая ошибка при остановке: {e}", exc_info=True)
         finally:
             logger.info("Обработчик очереди остановлен")
+            # Сброс состояния
+            self._task = None
+            self._tasks.clear()
 
     async def _cancel_task(self, task: asyncio.Task) -> None:
         """Корректно отменяет задачу"""

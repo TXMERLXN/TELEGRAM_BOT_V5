@@ -95,10 +95,11 @@ def main():
     
     try:
         # Запуск polling с использованием глобального event loop
-        dispatcher.run_polling(
-            bot, 
-            skip_updates=True,
-            loop=event_loop_manager.loop
+        event_loop_manager.run(
+            dispatcher.start_polling(
+                bot, 
+                skip_updates=True
+            )
         )
     except asyncio.CancelledError:
         logger.info("Bot polling cancelled")
@@ -107,6 +108,19 @@ def main():
     except Exception as e:
         logger.error(f"Error during bot polling: {str(e)}", exc_info=True)
         sys.exit(1)
+    finally:
+        # Гарантированная остановка всех компонентов
+        try:
+            # Остановка интеграционного сервиса
+            event_loop_manager.run(integration_service.shutdown())
+            
+            # Остановка обработчика очереди
+            event_loop_manager.run(task_queue.stop())
+            
+            # Закрытие event loop
+            event_loop_manager.close()
+        except Exception as shutdown_error:
+            logger.error(f"Error during final shutdown: {shutdown_error}", exc_info=True)
 
 if __name__ == "__main__":
-    event_loop_manager.run(main())
+    main()
