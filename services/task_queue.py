@@ -107,13 +107,28 @@ class TaskQueue:
                     if pending:
                         logger.warning(f"{len(pending)} callback tasks still pending")
                         for task in pending:
-                            # Проверяем что задача принадлежит текущему loop
-                            if hasattr(task, '_loop') and task._loop is not self.loop:
-                                logger.debug(f"Task {task.get_name()} belongs to different loop, skipping cancellation")
+                            try:
+                                # Проверяем что задача принадлежит текущему loop
+                                if hasattr(task, '_loop') and task._loop is not self.loop:
+                                    logger.debug(f"Task {task.get_name()} belongs to different loop, skipping cancellation")
+                                    continue
+                                    
+                                # Убедимся что задача еще не завершена
+                                if task.done():
+                                    continue
+                                    
+                                # Создаем новую задачу в текущем loop для отмены
+                                cancel_task = self.loop.create_task(
+                                    self._cancel_task(task),
+                                    name=f"cancel_task_{id(task)}"
+                                )
+                                # Добавляем обратный вызов для обработки ошибок
+                                cancel_task.add_done_callback(
+                                    lambda t: logger.debug(f"Cancel task completed with status: {t.result()}")
+                                )
+                            except Exception as e:
+                                logger.error(f"Error preparing task cancellation: {e}", exc_info=True)
                                 continue
-                                
-                            # Создаем новую задачу в текущем loop для отмены
-                            cancel_task = self.loop.create_task(self._cancel_task(task))
                             try:
                                 await cancel_task
                             except Exception as e:
