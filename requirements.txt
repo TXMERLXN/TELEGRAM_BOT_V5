@@ -6,3 +6,4 @@ uvicorn==0.23.2
 click==8.1.7
 gunicorn==21.2.0
 fastapi==0.104.1
+pydantic==2.5.2

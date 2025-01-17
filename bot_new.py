@@ -23,6 +23,7 @@ from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_applicati
 from aiohttp import web
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 
 from config import config
 from handlers.base import router as base_router
@@ -93,13 +94,14 @@ def setup_bot():
     
     return bot, dispatcher
 
-# Создаем ASGI-приложение для Uvicorn
-from fastapi import FastAPI
-
 # Создаем экземпляр FastAPI
 app = FastAPI()
 
 bot, dispatcher = setup_bot()
+
+# Создаем модель для webhook
+class WebhookUpdate(BaseModel):
+    update: dict
 
 # Регистрируем webhook-обработчик
 @app.on_event("startup")
@@ -112,16 +114,17 @@ async def on_startup():
 
 # Основной обработчик вебхука
 @app.post("/webhook")
-async def webhook(request: Request):
+async def webhook(update: WebhookUpdate):
     # Обработка входящих обновлений от Telegram
-    return await dispatcher.feed_webhook_update(bot, await request.json())
+    return await dispatcher.feed_webhook_update(bot, update.update)
 
 # Healthcheck эндпоинт
 @app.get("/health")
 async def health_check():
     return {
         "status": "healthy", 
-        "message": "Telegram Bot is running"
+        "message": "Telegram Bot is running",
+        "webhook_host": WEBHOOK_HOST
     }
 
 # Запуск мониторинга ресурсов
