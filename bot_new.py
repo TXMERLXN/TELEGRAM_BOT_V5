@@ -26,10 +26,13 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+# Получаем порт из переменных окружения
+WEBHOOK_PORT = int(os.getenv('WEBHOOK_PORT', 8443))
+WEBHOOK_HOST = os.getenv('WEBHOOK_HOST', 'https://example.com')
+
 async def on_startup(bot: Bot, dispatcher: Dispatcher):
     """Действия при запуске бота"""
     logger.info("====== Starting bot ======")
-    
     try:
         await integration_service.initialize()
         logger.info("Successfully initialized integration service")
@@ -37,52 +40,57 @@ async def on_startup(bot: Bot, dispatcher: Dispatcher):
         logger.error(f"Failed to initialize integration service: {str(e)}", exc_info=True)
         sys.exit(1)
     
-    logger.info("==========================")
-    logger.info("Starting bot")
+    await bot.set_webhook(
+        f"{WEBHOOK_HOST}/webhook", 
+        drop_pending_updates=True
+    )
 
 async def on_shutdown(bot: Bot, dispatcher: Dispatcher):
     """Действия при завершении работы бота"""
-    logger.info("====== Shutting down bot ======")
-    
+    logger.info("====== Stopping bot ======")
     try:
         await integration_service.shutdown()
         logger.info("Successfully shut down integration service")
     except Exception as e:
         logger.error(f"Error during shutdown: {str(e)}", exc_info=True)
     
-    # Закрываем сессию бота
+    await bot.delete_webhook()
     await bot.session.close()
-    
-    logger.info("==========================")
 
-async def setup_bot() -> tuple[Bot, Dispatcher]:
+def setup_bot():
     """Настройка бота и диспетчера"""
     bot = Bot(
-        token=config.tg_bot.token,
+        token=config.tg_bot.token, 
         default=DefaultBotProperties(parse_mode=ParseMode.HTML)
     )
-    dp = Dispatcher()
     
-    # Регистрация хэндлеров
-    dp.include_router(base_router)
-    dp.include_router(generation_router)
+    dispatcher = Dispatcher()
+    dispatcher.include_routers(base_router, generation_router)
     
-    # Регистрация обработчиков запуска и завершения
-    dp.startup.register(on_startup)
-    dp.shutdown.register(on_shutdown)
+    dispatcher.startup.register(on_startup)
+    dispatcher.shutdown.register(on_shutdown)
     
-    return bot, dp
+    return bot, dispatcher
 
 async def main():
     """Основная функция запуска"""
-    # Загружаем переменные окружения из .env файла
     load_dotenv()
     
-    bot, dp = await setup_bot()
+    bot, dispatcher = setup_bot()
     
-    # Удаляем webhook и запускаем polling
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+    app = web.Application()
+    SimpleRequestHandler(dispatcher=dispatcher, bot=bot).register(app, path="/webhook")
+    setup_application(app, dispatcher, bot=bot)
+    
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', WEBHOOK_PORT)
+    await site.start()
+    
+    logger.info(f"Bot started on port {WEBHOOK_PORT}")
+    
+    # Бесконечный цикл для работы сервера
+    await asyncio.Event().wait()
 
 if __name__ == "__main__":
     asyncio.run(main())
