@@ -18,10 +18,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PYTHONPATH=/app
+    PYTHONPATH=/app \
+    SENTRY_DSN=https://examplePublicKey@o0.ingest.sentry.io/0  # Замените на ваш Sentry DSN
 
-# SSL диагностика
+# SSL диагностика и мониторинг
 RUN python -m utils.ssl_check
+RUN python -m utils.monitoring
 
 # Порт для webhook
 EXPOSE 8080
