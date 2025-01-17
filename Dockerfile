@@ -9,20 +9,20 @@ ARG PYTHONUNBUFFERED
 ARG RUNNINGHUB_API_KEY_1
 ARG RUNNINGHUB_WORKFLOW_ID_1
 
-# Рабочая директория
+# Установка рабочей директории
 WORKDIR /app
 
-# Копирование зависимостей
+# Копирование файлов зависимостей
 COPY requirements.txt .
 
 # Установка зависимостей
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
-# Копирование исходного кода
+# Копирование всего проекта
 COPY . .
 
-# Переменные окружения
+# Установка переменных окружения
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
@@ -31,16 +31,16 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     SENTRY_DSN=https://examplePublicKey@o0.ingest.sentry.io/0 \
     WEBHOOK_PORT=8443
 
-# SSL диагностика и мониторинг
+# Проверка SSL-сертификата
 RUN python -c "from utils.ssl_check import check_ssl_certificate; print('SSL Check module imported successfully')"
 
 # Создание директории для логов
 RUN mkdir -p /app/logs
 
-# Порт для webhook
+# Экспозиция порта
 EXPOSE 8443
 
-# Команда запуска с gunicorn
+# Команда запуска с gunicorn и мониторингом
 CMD python -m utils.monitoring & \
     gunicorn \
     --workers 2 \
