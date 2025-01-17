@@ -23,7 +23,7 @@ from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_applicati
 from aiohttp import web
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from typing import Dict
+from typing import Dict, Any
 from pydantic import BaseModel, Field
 
 from config import config
@@ -105,7 +105,7 @@ bot, dispatcher = setup_bot()
 
 # Создаем модель для webhook
 class WebhookUpdate(BaseModel):
-    update: Dict = Field(..., description="Telegram webhook update")
+    update: Dict[str, Any] = Field(..., description="Telegram webhook update")
 
 # Регистрируем webhook-обработчик
 @app.on_event("startup")
