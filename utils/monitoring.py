@@ -8,6 +8,7 @@ import os
 import signal
 import traceback
 import random
+import asyncio
 
 class AdaptiveSystemMonitor:
     def __init__(self, base_interval: int = 300, max_interval: int = 1800):
@@ -155,15 +156,81 @@ class AdaptiveSystemMonitor:
         except Exception as e:
             logging.error(f"Error checking critical resources: {e}")
 
+class ResourceMonitor:
+    def __init__(self, 
+                 cpu_threshold: float = 90.0, 
+                 memory_threshold: float = 90.0,
+                 check_interval: int = 30):
+        self.cpu_threshold = cpu_threshold
+        self.memory_threshold = memory_threshold
+        self.check_interval = check_interval
+        self.logger = logging.getLogger(__name__)
+        self._monitor_task: Optional[asyncio.Task] = None
+
+    async def monitor_resources(self):
+        while True:
+            cpu_percent = psutil.cpu_percent()
+            memory_percent = psutil.virtual_memory().percent
+
+            if cpu_percent > self.cpu_threshold:
+                self.logger.warning(f"🚨 High CPU Usage: {cpu_percent}% - Potential Performance Issue")
+                await self.take_mitigation_action('cpu')
+
+            if memory_percent > self.memory_threshold:
+                self.logger.warning(f"🚨 High Memory Usage: {memory_percent}% - Low Memory Available")
+                await self.take_mitigation_action('memory')
+
+            await asyncio.sleep(self.check_interval)
+
+    async def take_mitigation_action(self, resource_type: str):
+        """
+        Простые действия по снижению нагрузки
+        """
+        if resource_type == 'cpu':
+            # Принудительный сбор мусора
+            import gc
+            gc.collect()
+            self.logger.info("🔧 Garbage collection triggered")
+
+        elif resource_type == 'memory':
+            # Освобождение неиспользуемых ресурсов
+            import asyncio
+            tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
+            for task in tasks:
+                if task.done():
+                    task.cancel()
+            self.logger.info("🧹 Cleaned up completed tasks")
+
+    def start(self):
+        """
+        Запуск мониторинга в фоновом режиме
+        """
+        if not self._monitor_task or self._monitor_task.done():
+            self._monitor_task = asyncio.create_task(self.monitor_resources())
+            self.logger.info("🌐 Resource monitoring started")
+
+    def stop(self):
+        """
+        Остановка мониторинга
+        """
+        if self._monitor_task and not self._monitor_task.done():
+            self._monitor_task.cancel()
+            self.logger.info("🛑 Resource monitoring stopped")
+
+# Глобальный экземпляр монитора
+resource_monitor = ResourceMonitor()
+
 def monitor_process():
     """
     Функция для запуска мониторинга в отдельном процессе
     """
     monitor = AdaptiveSystemMonitor()
+    resource_monitor.start()
     
     def signal_handler(signum, frame):
         """Обработчик сигналов для корректного завершения"""
         logging.info("🛑 Monitoring process received stop signal")
+        resource_monitor.stop()
         exit(0)
 
     # Регистрация обработчиков сигналов

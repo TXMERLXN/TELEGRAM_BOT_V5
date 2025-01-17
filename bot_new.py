@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.join(project_root, 'utils'))
 
 # Инициализация Sentry до импорта других модулей
 try:
-    from sentry_utils import init_sentry
+    from utils.sentry_utils import init_sentry
     init_sentry(
         environment=os.getenv('SENTRY_ENVIRONMENT', 'development')
     )
@@ -37,6 +37,7 @@ from handlers.base import router as base_router
 from handlers.generation import router as generation_router
 from handlers.admin import router as admin_router
 from services.integration import IntegrationService
+from utils.monitoring import resource_monitor
 
 # Настройка логирования
 logging.basicConfig(
@@ -111,6 +112,9 @@ async def main():
     
     setup_application(app, dispatcher, bot=bot)
     
+    # Запуск мониторинга ресурсов
+    resource_monitor.start()
+    
     # Запуск приложения
     runner = web.AppRunner(app)
     await runner.setup()
@@ -120,8 +124,26 @@ async def main():
     # Ожидание остановки
     await asyncio.Event().wait()
 
+async def asgi_app(scope, receive, send):
+    """
+    Корректная ASGI-обертка для приложения
+    """
+    if scope['type'] == 'http':
+        await send({
+            'type': 'http.response.start',
+            'status': 200,
+            'headers': [
+                [b'content-type', b'text/plain'],
+            ]
+        })
+        await send({
+            'type': 'http.response.body',
+            'body': b'Telegram Bot is running'
+        })
+    return
+
 # ASGI-приложение для Gunicorn
-app = web.Application()
+app = asgi_app
 
 if __name__ == "__main__":
     try:
@@ -130,7 +152,7 @@ if __name__ == "__main__":
         logger.error(f"Критическая ошибка при запуске бота: {e}")
         # Автоматическая отправка критической ошибки в Sentry
         try:
-            from sentry_utils import capture_exception
+            from utils.sentry_utils import capture_exception
             capture_exception(e)
         except ImportError:
             logger.error("Не удалось импортировать Sentry для логирования ошибки")
