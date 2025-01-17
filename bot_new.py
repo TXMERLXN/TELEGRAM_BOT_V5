@@ -2,7 +2,8 @@ import os
 import sys
 
 # Добавляем корневую директорию в путь импорта
-sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+project_root = os.path.abspath(os.path.dirname(__file__))
+sys.path.insert(0, project_root)
 
 import logging
 import asyncio
@@ -11,11 +12,18 @@ from dotenv import load_dotenv
 # Загрузка переменных окружения
 load_dotenv()
 
+# Явное добавление пути к utils
+sys.path.insert(0, os.path.join(project_root, 'utils'))
+
 # Инициализация Sentry до импорта других модулей
-from utils.sentry_utils import init_sentry
-init_sentry(
-    environment=os.getenv('SENTRY_ENVIRONMENT', 'development')
-)
+try:
+    from sentry_utils import init_sentry
+    init_sentry(
+        environment=os.getenv('SENTRY_ENVIRONMENT', 'development')
+    )
+except ImportError as e:
+    print(f"Не удалось импортировать Sentry: {e}")
+    print(f"Текущий путь: {sys.path}")
 
 import httpx
 from aiogram import Bot, Dispatcher
@@ -121,6 +129,9 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"Критическая ошибка при запуске бота: {e}")
         # Автоматическая отправка критической ошибки в Sentry
-        from utils.sentry_utils import capture_exception
-        capture_exception(e)
+        try:
+            from sentry_utils import capture_exception
+            capture_exception(e)
+        except ImportError:
+            logger.error("Не удалось импортировать Sentry для логирования ошибки")
         sys.exit(1)
