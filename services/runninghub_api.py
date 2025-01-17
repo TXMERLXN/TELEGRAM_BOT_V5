@@ -6,7 +6,7 @@ from typing import Dict, Any, Optional
 logger = logging.getLogger(__name__)
 
 class RunningHubAPI:
-    def __init__(self, base_url: str = "https://api.runninghub.com"):
+    def __init__(self, base_url: str = "https://www.runninghub.ai/"):
         """
         Инициализация API для RunningHub
         
@@ -33,7 +33,7 @@ class RunningHubAPI:
         """
         try:
             response = await self.client.post(
-                f"{self.base_url}/tasks",
+                f"{self.base_url}tasks",
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json"
@@ -66,7 +66,7 @@ class RunningHubAPI:
         """
         try:
             response = await self.client.get(
-                f"{self.base_url}/tasks/{task_id}",
+                f"{self.base_url}tasks/{task_id}",
                 headers={
                     "Authorization": f"Bearer {api_key}"
                 }
