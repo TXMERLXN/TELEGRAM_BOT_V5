@@ -93,75 +93,41 @@ def setup_bot():
     
     return bot, dispatcher
 
-async def main():
-    """Основная функция запуска"""
-    # Создание бота и диспетчера
-    bot, dispatcher = setup_bot()
-    
-    # Настройка приложения
-    app = web.Application()
-    
-    # Настройка вебхука
-    SimpleRequestHandler(
-        dispatcher=dispatcher, 
-        bot=bot
-    ).register(app, path="/webhook")
-    
-    setup_application(app, dispatcher, bot=bot)
-    
-    # Добавляем FastAPI для healthcheck
-    health_app = FastAPI()
+# Создаем ASGI-приложение для Uvicorn
+from fastapi import FastAPI
 
-    @health_app.get("/health")
-    async def health_check():
-        return JSONResponse(
-            status_code=200, 
-            content={
-                "status": "healthy", 
-                "message": "Telegram Bot is running"
-            }
-        )
-    
-    # Добавляем healthcheck в основное приложение
-    app.add_subapp('/healthcheck', health_app)
-    
-    # Запуск мониторинга ресурсов
-    resource_monitor.start()
-    
-    # Запуск приложения
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', WEBHOOK_PORT)
-    await site.start()
-    
-    # Ожидание остановки
-    await asyncio.Event().wait()
+# Создаем экземпляр FastAPI
+app = FastAPI()
 
-async def asgi_app(scope, receive, send):
-    """
-    Корректная ASGI-обертка для приложения
-    """
-    if scope['type'] == 'http':
-        await send({
-            'type': 'http.response.start',
-            'status': 200,
-            'headers': [
-                [b'content-type', b'text/plain'],
-            ]
-        })
-        await send({
-            'type': 'http.response.body',
-            'body': b'Telegram Bot is running'
-        })
-    return
+bot, dispatcher = setup_bot()
 
-# ASGI-приложение для Gunicorn
-app = web.Application()
-setup_application(app, dispatcher, bot=bot)
+# Регистрируем webhook-обработчик
+@app.on_event("startup")
+async def on_startup():
+    # Настройка вебхука при старте
+    await bot.set_webhook(
+        url=f"{WEBHOOK_HOST}/webhook", 
+        secret_token=BOT_TOKEN
+    )
 
-# Добавляем healthcheck в основное приложение
-app.add_subapp('/healthcheck', health_app)
+# Основной обработчик вебхука
+@app.post("/webhook")
+async def webhook(request: Request):
+    # Обработка входящих обновлений от Telegram
+    return await dispatcher.feed_webhook_update(bot, await request.json())
+
+# Healthcheck эндпоинт
+@app.get("/health")
+async def health_check():
+    return {
+        "status": "healthy", 
+        "message": "Telegram Bot is running"
+    }
+
+# Запуск мониторинга ресурсов
+resource_monitor.start()
 
 # Если файл запускается напрямую
-if __name__ == '__main__':
-    web.run_app(app, port=WEBHOOK_PORT)
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=WEBHOOK_PORT)
