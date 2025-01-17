@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 # Получаем параметры из переменных окружения
 BOT_TOKEN = os.getenv('BOT_TOKEN')
-WEBHOOK_PORT = int(os.getenv('WEBHOOK_PORT', 8443))
+WEBHOOK_PORT = int(os.getenv('PORT', 8443))
 WEBHOOK_HOST = os.getenv('WEBHOOK_HOST', 'https://example.com')
 
 # Инициализация сервисов

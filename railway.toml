@@ -1,5 +1,5 @@
 [build]
-builder = "python"
+builder = "nixpacks"
 buildCommand = "pip install -r requirements.txt"
 startCommand = "python bot_new.py"
 
@@ -9,3 +9,4 @@ restartPolicyMaxRetries = 3
 
 [env]
 PYTHONUNBUFFERED = "1"
+PORT = "$PORT"
