@@ -41,7 +41,12 @@ logger = logging.getLogger(__name__)
 # Получаем параметры из переменных окружения
 BOT_TOKEN = os.getenv('BOT_TOKEN')
 WEBHOOK_PORT = int(os.getenv('PORT', 8443))
-WEBHOOK_HOST = os.getenv('WEBHOOK_HOST', 'https://example.com')
+
+# Автоматическое определение WEBHOOK_HOST
+RAILWAY_STATIC_URL = os.getenv('RAILWAY_STATIC_URL', '')
+RAILWAY_WEB_URL = os.getenv('RAILWAY_WEB_URL', '')
+
+WEBHOOK_HOST = RAILWAY_STATIC_URL or RAILWAY_WEB_URL or os.getenv('WEBHOOK_HOST', 'https://example.com')
 
 # Инициализация сервисов
 integration_service = IntegrationService(config.runninghub.accounts)
