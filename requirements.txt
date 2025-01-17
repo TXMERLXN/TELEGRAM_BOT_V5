@@ -9,3 +9,5 @@ pydantic>=2.4.1
 aiofiles>=23.2.1
 httpx>=0.24.0
 uvloop>=0.17.0
+pyOpenSSL>=23.2.0  # Для улучшенной SSL-проверки
+cryptography>=41.0.0  # Криптографические утилиты

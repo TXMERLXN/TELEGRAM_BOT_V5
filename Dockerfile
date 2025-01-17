@@ -17,7 +17,11 @@ COPY . .
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONPATH=/app
+
+# SSL диагностика
+RUN python -m utils.ssl_check
 
 # Порт для webhook
 EXPOSE 8080
