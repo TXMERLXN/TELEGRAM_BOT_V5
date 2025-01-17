@@ -1,5 +1,9 @@
 import os
 import sys
+
+# Добавляем корневую директорию в путь импорта
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+
 import logging
 import asyncio
 from dotenv import load_dotenv
