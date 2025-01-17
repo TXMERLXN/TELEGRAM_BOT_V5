@@ -1,14 +1,13 @@
 import logging
 import time
 import psutil
-import sentry_sdk
-from typing import Dict, Any
 import multiprocessing
 import os
 import signal
 import traceback
 import random
 import asyncio
+from typing import Dict, Any, Optional
 
 class AdaptiveSystemMonitor:
     def __init__(self, base_interval: int = 300, max_interval: int = 1800):
@@ -18,12 +17,6 @@ class AdaptiveSystemMonitor:
         :param base_interval: Базовый интервал между замерами (секунды)
         :param max_interval: Максимальный интервал между замерами
         """
-        sentry_sdk.init(
-            dsn="https://examplePublicKey@o0.ingest.sentry.io/0",
-            traces_sample_rate=0.1,
-            profiles_sample_rate=0.1,
-        )
-        
         self.base_interval = base_interval
         self.max_interval = max_interval
         self.current_interval = base_interval
@@ -141,17 +134,14 @@ class AdaptiveSystemMonitor:
             if cpu_usage > 90:
                 message = f"🚨 High CPU Usage: {cpu_usage}% - Potential Performance Issue"
                 logging.warning(message)
-                sentry_sdk.capture_message(message, level="error")
 
             if memory_usage > 85:
                 message = f"🚨 High Memory Usage: {memory_usage}% - Low Memory Available"
                 logging.warning(message)
-                sentry_sdk.capture_message(message, level="warning")
 
             if disk_usage > 90:
                 message = f"🚨 High Disk Usage: {disk_usage}% - Low Disk Space"
                 logging.warning(message)
-                sentry_sdk.capture_message(message, level="warning")
 
         except Exception as e:
             logging.error(f"Error checking critical resources: {e}")

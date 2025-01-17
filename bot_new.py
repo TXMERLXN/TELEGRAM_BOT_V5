@@ -15,16 +15,6 @@ load_dotenv()
 # Явное добавление пути к utils
 sys.path.insert(0, os.path.join(project_root, 'utils'))
 
-# Инициализация Sentry до импорта других модулей
-try:
-    from utils.sentry_utils import init_sentry
-    init_sentry(
-        environment=os.getenv('SENTRY_ENVIRONMENT', 'development')
-    )
-except ImportError as e:
-    print(f"Не удалось импортировать Sentry: {e}")
-    print(f"Текущий путь: {sys.path}")
-
 import httpx
 from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
@@ -150,10 +140,4 @@ if __name__ == "__main__":
         asyncio.run(main())
     except Exception as e:
         logger.error(f"Критическая ошибка при запуске бота: {e}")
-        # Автоматическая отправка критической ошибки в Sentry
-        try:
-            from utils.sentry_utils import capture_exception
-            capture_exception(e)
-        except ImportError:
-            logger.error("Не удалось импортировать Sentry для логирования ошибки")
         sys.exit(1)
