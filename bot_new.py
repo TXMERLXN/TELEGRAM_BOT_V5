@@ -21,6 +21,8 @@ from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from config import config
 from handlers.base import router as base_router
@@ -101,6 +103,22 @@ async def main():
     ).register(app, path="/webhook")
     
     setup_application(app, dispatcher, bot=bot)
+    
+    # Добавляем FastAPI для healthcheck
+    health_app = FastAPI()
+
+    @health_app.get("/health")
+    async def health_check():
+        return JSONResponse(
+            status_code=200, 
+            content={
+                "status": "healthy", 
+                "message": "Telegram Bot is running"
+            }
+        )
+    
+    # Добавляем healthcheck в приложение
+    app.add_subapp('/healthcheck', health_app)
     
     # Запуск мониторинга ресурсов
     resource_monitor.start()
