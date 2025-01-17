@@ -1,0 +1,36 @@
+# Git
+.git
+.gitignore
+
+# Virtual Environment
+.venv
+venv
+env
+
+# IDE
+.vscode
+.idea
+
+# Logs
+*.log
+
+# Cache
+__pycache__
+.cache
+
+# Testing
+.pytest_cache
+tests
+
+# Documentation
+*.md
+GUIDELINES.md
+RUNNINGHUB_API.md
+
+# Environment files
+.env
+.env.example
+
+# Misc
+.DS_Store
+Thumbs.db

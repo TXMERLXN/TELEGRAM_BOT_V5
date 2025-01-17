@@ -11,3 +11,4 @@ restartPolicyMaxRetries = 3
 PYTHONUNBUFFERED = "1"
 PORT = "$PORT"
 RAILWAY_HEALTHCHECK_TIMEOUT_SEC = 600  # 10 минут для сложных задач
+PYTHONDONTWRITEBYTECODE = "1"  # Отключаем генерацию .pyc файлов
