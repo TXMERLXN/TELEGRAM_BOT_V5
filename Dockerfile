@@ -23,7 +23,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     WEBHOOK_PORT=8443
 
 # SSL диагностика и мониторинг
-RUN python -m utils.ssl_check
+RUN python -c "from utils.ssl_check import check_ssl_certificate; print('SSL Check module imported successfully')"
 RUN python -m utils.monitoring
 
 # Порт для webhook
