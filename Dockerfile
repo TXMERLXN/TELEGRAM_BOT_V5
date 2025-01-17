@@ -1,5 +1,14 @@
 FROM python:3.9-slim
 
+# Аргументы сборки
+ARG BOT_TOKEN
+ARG USE_WEBHOOK
+ARG WEBHOOK_HOST
+ARG WEBHOOK_PORT
+ARG PYTHONUNBUFFERED
+ARG RUNNINGHUB_API_KEY_1
+ARG RUNNINGHUB_WORKFLOW_ID_1
+
 # Рабочая директория
 WORKDIR /app
 
@@ -24,10 +33,17 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 # SSL диагностика и мониторинг
 RUN python -c "from utils.ssl_check import check_ssl_certificate; print('SSL Check module imported successfully')"
-RUN python -m utils.monitoring
+
+# Создание директории для логов
+RUN mkdir -p /app/logs
 
 # Порт для webhook
 EXPOSE 8443
 
 # Команда запуска с gunicorn
-CMD ["gunicorn", "-b", "0.0.0.0:8443", "-w", "2", "bot_new:main", "--log-level", "debug"]
+CMD python -m utils.monitoring & \
+    gunicorn \
+    --workers 2 \
+    --worker-class uvicorn.workers.UvicornWorker \
+    --bind 0.0.0.0:${WEBHOOK_PORT} \
+    bot_new:app
