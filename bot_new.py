@@ -23,6 +23,7 @@ from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_applicati
 from aiohttp import web
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from typing import Dict
 from pydantic import BaseModel
 
 from config import config
@@ -99,10 +100,6 @@ app = FastAPI()
 
 bot, dispatcher = setup_bot()
 
-# Создаем модель для webhook
-class WebhookUpdate(BaseModel):
-    update: dict
-
 # Регистрируем webhook-обработчик
 @app.on_event("startup")
 async def on_startup():
@@ -114,9 +111,10 @@ async def on_startup():
 
 # Основной обработчик вебхука
 @app.post("/webhook")
-async def webhook(update: WebhookUpdate):
+async def webhook(request: Request):
     # Обработка входящих обновлений от Telegram
-    return await dispatcher.feed_webhook_update(bot, update.update)
+    update = await request.json()
+    return await dispatcher.feed_webhook_update(bot, update)
 
 # Healthcheck эндпоинт
 @app.get("/health")
