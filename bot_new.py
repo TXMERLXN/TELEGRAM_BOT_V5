@@ -122,7 +122,7 @@ async def main():
             }
         )
     
-    # Добавляем healthcheck в приложение
+    # Добавляем healthcheck в основное приложение
     app.add_subapp('/healthcheck', health_app)
     
     # Запуск мониторинга ресурсов
@@ -156,11 +156,12 @@ async def asgi_app(scope, receive, send):
     return
 
 # ASGI-приложение для Gunicorn
-app = asgi_app
+app = web.Application()
+setup_application(app, dispatcher, bot=bot)
 
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except Exception as e:
-        logger.error(f"Критическая ошибка при запуске бота: {e}")
-        sys.exit(1)
+# Добавляем healthcheck в основное приложение
+app.add_subapp('/healthcheck', health_app)
+
+# Если файл запускается напрямую
+if __name__ == '__main__':
+    web.run_app(app, port=WEBHOOK_PORT)
