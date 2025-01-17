@@ -86,10 +86,52 @@ class TaskQueue:
                 async with self._lock:
                     # Логика обработки задачи
                     logger.info(f"Processing task: {task}")
-                    # Здесь будет ваша основная логика обработки задачи
+                    
+                    # Получаем доступный аккаунт
+                    api_key = await self.account_manager.get_available_account()
+                    
+                    if not api_key:
+                        logger.warning("No available accounts, putting task back to queue")
+                        await self.queue.put(task)
+                        await asyncio.sleep(1)
+                        continue
+                    
+                    try:
+                        # Создаем задачу в RunningHub
+                        account = self.account_manager.accounts[api_key]
+                        task_id = await self.runninghub_api.create_task(
+                            api_key=api_key,
+                            workflow_id=account.workflow_id,
+                            product_image_url=task.product_image_url,
+                            background_image_url=task.background_image_url
+                        )
+
+                        if task_id:
+                            # Ждем завершения задачи
+                            results = await self.runninghub_api.wait_for_task(
+                                api_key=api_key,
+                                task_id=task_id
+                            )
+                            
+                            # Вызываем callback с результатами
+                            await task.callback(results)
+                        else:
+                            await task.callback(None)
+
+                    except Exception as e:
+                        logger.error(f"Error processing task: {e}")
+                        if task.retries < 3:
+                            task.retries += 1
+                            await self.queue.put(task)
+                        else:
+                            await task.callback(None)
+                    finally:
+                        # Освобождаем аккаунт
+                        await self.account_manager.release_account(api_key)
+                    
                     self.queue.task_done()
             except Exception as e:
-                logger.error(f"Error processing task: {e}")
+                logger.error(f"Unexpected error in queue processing: {e}")
 
     async def _wait_for_task_completion(
         self,
