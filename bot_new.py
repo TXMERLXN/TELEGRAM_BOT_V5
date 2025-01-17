@@ -13,7 +13,14 @@ from aiohttp import web
 from config import config
 from handlers.base import router as base_router
 from handlers.new_generation import router as generation_router
+from handlers.admin import router as admin_router
 from services.integration import IntegrationService
+from utils.sentry_utils import init_sentry
+
+# Инициализация Sentry до импорта других модулей
+init_sentry(
+    environment=os.getenv('SENTRY_ENVIRONMENT', 'development')
+)
 
 # Инициализация сервисов
 integration_service = IntegrationService(config.runninghub.accounts)
@@ -23,7 +30,6 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-
 logger = logging.getLogger(__name__)
 
 # Получаем порт из переменных окружения
@@ -65,7 +71,7 @@ def setup_bot():
     )
     
     dispatcher = Dispatcher()
-    dispatcher.include_routers(base_router, generation_router)
+    dispatcher.include_routers(base_router, generation_router, admin_router)
     
     dispatcher.startup.register(on_startup)
     dispatcher.shutdown.register(on_shutdown)
@@ -93,4 +99,10 @@ async def main():
     await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        logger.error(f"Критическая ошибка: {e}")
+        # Автоматическая отправка критической ошибки в Sentry
+        from utils.sentry_utils import capture_exception
+        capture_exception(e)
