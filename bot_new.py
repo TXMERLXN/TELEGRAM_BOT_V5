@@ -24,7 +24,7 @@ from aiohttp import web
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from typing import Dict
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from config import config
 from handlers.base import router as base_router
@@ -103,6 +103,10 @@ app = FastAPI()
 
 bot, dispatcher = setup_bot()
 
+# Создаем модель для webhook
+class WebhookUpdate(BaseModel):
+    update: Dict = Field(..., description="Telegram webhook update")
+
 # Регистрируем webhook-обработчик
 @app.on_event("startup")
 async def on_startup():
@@ -114,10 +118,9 @@ async def on_startup():
 
 # Основной обработчик вебхука
 @app.post("/webhook")
-async def webhook(request: Request):
+async def webhook(update: WebhookUpdate):
     # Обработка входящих обновлений от Telegram
-    update = await request.json()
-    return await dispatcher.feed_webhook_update(bot, update)
+    return await dispatcher.feed_webhook_update(bot, update.update)
 
 # Healthcheck эндпоинт
 @app.get("/health")
